@@ -3,42 +3,93 @@
 <head>
     <meta charset="UTF-8">
     <title>Study Time Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; max-width: 800px; margin: 0 auto; }
-        #videoInput, #canvasOutput { max-width: 100%; display: block; margin: 10px auto; }
-        button { margin: 10px; padding: 10px; }
-        .error { color: red; font-weight: bold; }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
     </style>
 </head>
-<body>
-    <h1>Study Time Tracker</h1>
-    
-    <div id="status" class="error"></div>
-    
-    <div id="timer">00:00:00</div>
-    <div id="total-time">Total Study Time: 00:00:00</div>
-    
-    <video id="videoInput" width="640" height="480" autoplay playsinline></video>
-    <canvas id="canvasOutput"></canvas>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center">
+    <div class="w-full max-w-4xl bg-white shadow-lg rounded-lg p-8 mt-10">
+        <h1 class="text-3xl font-bold text-center text-blue-600 mb-6">Study Time Tracker</h1>
+        
+        <div id="status" class="text-center mb-4 h-6"></div>
+        
+        <div class="flex justify-center space-x-4 mb-6">
+            <div class="text-center">
+                <div id="timer" class="text-4xl font-mono text-gray-700">00:00:00</div>
+                <div class="text-sm text-gray-500">Current Session</div>
+            </div>
+            <div class="text-center">
+                <div id="total-time" class="text-4xl font-mono text-green-600">00:00:00</div>
+                <div class="text-sm text-gray-500">Total Study Time</div>
+            </div>
+        </div>
 
-    <div>
-        <input type="text" id="username" placeholder="Enter your username">
-        <button id="startBtn" disabled>Start Studying</button>
-        <button id="stopBtn" disabled>Stop Studying</button>
-    </div>
+        <div class="flex flex-col md:flex-row justify-center items-center space-y-4 md:space-y-0 md:space-x-4 mb-6">
+            <input 
+                type="text" 
+                id="username" 
+                placeholder="Enter your username" 
+                class="input input-bordered w-full max-w-xs px-4 py-2 border rounded-lg"
+            >
+            <div class="flex space-x-4">
+                <button 
+                    id="startBtn" 
+                    disabled 
+                    class="btn btn-primary bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                >
+                    Start Studying
+                </button>
+                <button 
+                    id="stopBtn" 
+                    disabled 
+                    class="btn btn-secondary bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 disabled:opacity-50"
+                >
+                    Stop Studying
+                </button>
+                <button 
+                    id="clearBtn" 
+                    class="btn btn-outline bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300"
+                >
+                    Clear Rankings
+                </button>
+            </div>
+        </div>
 
-    <div id="rankings">
-        <h2>Study Time Rankings</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Rank</th>
-                    <th>Username</th>
-                    <th>Total Study Time</th>
-                </tr>
-            </thead>
-            <tbody id="rankingsBody"></tbody>
-        </table>
+        <div class="flex justify-center mb-6">
+            <video 
+                id="videoInput" 
+                width="640" 
+                height="480" 
+                autoplay 
+                playsinline 
+                class="rounded-lg shadow-md"
+            ></video>
+        </div>
+        <canvas 
+            id="canvasOutput" 
+            class="mx-auto rounded-lg shadow-md"
+        ></canvas>
+
+        <div class="mt-8">
+            <h2 class="text-2xl font-semibold text-center mb-4 text-blue-600">Study Time Rankings</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full bg-white shadow-md rounded-lg overflow-hidden">
+                    <thead class="bg-blue-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Study Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rankingsBody" class="divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
@@ -51,19 +102,21 @@
         let isStudying = false;
         let isDistracted = false;
         let distractionStartTime = 0;
+        let faceDetected = false;
 
         function showStatus(message, isError = true) {
             const statusEl = document.getElementById('status');
             statusEl.textContent = message;
             statusEl.style.display = message ? 'block' : 'none';
-            statusEl.style.color = isError ? 'red' : 'green';
+            statusEl.className = isError 
+                ? 'text-red-500 font-bold text-center' 
+                : 'text-green-500 font-bold text-center';
         }
 
-        // Ranking functions (same as before)
         function loadRankings() {
-            const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
-            rankings.sort((a, b) => b.total_study_time - a.total_study_time);
-            return rankings;
+            const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]')
+                .filter(rank => rank.name && rank.name.trim() !== '' && !isNaN(rank.total_study_time));
+            return rankings.sort((a, b) => b.total_study_time - a.total_study_time);
         }
 
         function saveRankings(rankings) {
@@ -74,10 +127,10 @@
         function displayRankings(rankings) {
             const rankingsBody = document.getElementById('rankingsBody');
             rankingsBody.innerHTML = rankings.map((rank, index) => `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td>${rank.name}</td>
-                    <td>${formatTime(rank.total_study_time)}</td>
+                <tr class="hover:bg-blue-50 transition-colors">
+                    <td class="px-4 py-3 whitespace-nowrap">${index + 1}</td>
+                    <td class="px-4 py-3 whitespace-nowrap">${rank.name}</td>
+                    <td class="px-4 py-3 whitespace-nowrap">${formatTime(rank.total_study_time)}</td>
                 </tr>
             `).join('');
         }
@@ -91,59 +144,47 @@
 
         function updateTimerDisplay() {
             document.getElementById('timer').textContent = formatTime(sessionSeconds);
-            document.getElementById('total-time').textContent = `Total Study Time: ${formatTime(totalSeconds)}`;
+            document.getElementById('total-time').textContent = formatTime(totalSeconds);
         }
 
-        function detectDistraction(src) {
-            try {
-                let gray = new cv.Mat();
-                let binary = new cv.Mat();
+        function detectFace(src) {
+            let gray = new cv.Mat();
+            let faces = new cv.MatVector();
+            let classifier = new cv.CascadeClassifier();
+            
+            // Convert to grayscale
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            
+            // Equalize histogram for better detection
+            let equalizedGray = new cv.Mat();
+            cv.equalizeHist(gray, equalizedGray);
+            
+            // Load face classifier
+            classifier.load('/haarcascade_frontalface_default.xml');
+            
+            // Detect faces
+            let msize = new cv.Size(0, 0);
+            classifier.detectMultiScale(equalizedGray, faces, 1.1, 3, 0, msize, msize);
+            
+            // Draw rectangles and check face detection
+            for (let i = 0; i < faces.size(); i++) {
+                let face = faces.get(i);
                 
-                // Convert to grayscale
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-                
-                // Binary thresholding
-                cv.threshold(gray, binary, 50, 255, cv.THRESH_BINARY_INV);
-                
-                // Find contours
-                let contours = new cv.MatVector();
-                let hierarchy = new cv.Mat();
-                cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                
-                for (let i = 0; i < contours.size(); i++) {
-                    let contour = contours.get(i);
-                    let rect = cv.boundingRect(contour);
-                    
-                    // Aspect ratio and area checks 
-                    let aspectRatio = rect.width / rect.height;
-                    let area = cv.contourArea(contour);
-                    
-                    if (aspectRatio >= 0.4 && aspectRatio <= 2.5 && 
-                        area > 5000 && area < 100000) {
-                        
-                        // Draw red rectangle for distraction
-                        cv.rectangle(src, 
-                            new cv.Point(rect.x, rect.y), 
-                            new cv.Point(rect.x + rect.width, rect.y + rect.height), 
-                            [0, 0, 255, 255], 2
-                        );
-                        
-                        // Free memory
-                        gray.delete(); binary.delete(); 
-                        contours.delete(); hierarchy.delete();
-                        
-                        return true;
-                    }
-                }
-                
-                // Free memory
-                gray.delete(); binary.delete(); 
-                contours.delete(); hierarchy.delete();
-            } catch (error) {
-                console.error("Distraction detection error:", error);
+                // Draw green rectangle for detected faces
+                cv.rectangle(src, 
+                    new cv.Point(face.x, face.y), 
+                    new cv.Point(face.x + face.width, face.y + face.height), 
+                    [0, 255, 0, 255], 2
+                );
             }
             
-            return false;
+            // Clean up
+            gray.delete();
+            equalizedGray.delete();
+            faces.delete();
+            classifier.delete();
+            
+            return faces.size() > 0;
         }
 
         function processVideo() {
@@ -156,23 +197,30 @@
                 videoCapture.read(src);
                 src.copyTo(dst);
 
-                let detectedDistraction = detectDistraction(dst);
+                // Detect face
+                faceDetected = detectFace(dst);
                 
-                if (detectedDistraction) {
+                if (faceDetected) {
+                    if (isDistracted) {
+                        isDistracted = false;
+                        distractionStartTime = 0;
+                    }
+                    
+                    // Increment time only when face is detected
+                    sessionSeconds++;
+                    totalSeconds++;
+                } else {
+                    // Face not detected
                     if (!isDistracted) {
                         isDistracted = true;
                         distractionStartTime = Date.now();
                     }
                     
-                    // More than 5 seconds of distraction
+                    // More than 5 seconds without face
                     if (Date.now() - distractionStartTime > 5000) {
                         isStudying = false;
-                        showStatus("Distraction detected. Study paused.", false);
+                        showStatus("No face detected. Study paused.", true);
                     }
-                } else {
-                    isDistracted = false;
-                    sessionSeconds++;
-                    totalSeconds++;
                 }
 
                 // Draw canvas
@@ -211,9 +259,9 @@
             
             const userRankIndex = rankings.findIndex(r => r.name === username);
             if (userRankIndex !== -1) {
-                rankings[userRankIndex].total_study_time += totalSeconds;
+                rankings[userRankIndex].total_study_time += sessionSeconds;
             } else {
-                rankings.push({ name: username, total_study_time: totalSeconds });
+                rankings.push({ name: username, total_study_time: sessionSeconds });
             }
             
             rankings.sort((a, b) => b.total_study_time - a.total_study_time);
@@ -225,6 +273,12 @@
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
             updateTimerDisplay();
+        }
+
+        function clearRankings() {
+            localStorage.removeItem('studyRankings');
+            displayRankings([]);
+            showStatus("Rankings have been cleared!", false);
         }
 
         function initializeOpenCV() {
@@ -244,6 +298,7 @@
                 
                 document.getElementById('startBtn').onclick = startStudy;
                 document.getElementById('stopBtn').onclick = stopStudy;
+                document.getElementById('clearBtn').onclick = clearRankings;
                 
                 // Enable start button
                 document.getElementById('startBtn').disabled = false;
