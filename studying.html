@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Study Time Tracker</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 600px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            text-align: center; 
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 20px; 
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 8px; 
+        }
+        #start-study, #stop-study {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 16px;
+        }
+        #timer, #total-time {
+            font-size: 24px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Study Time Tracker</h1>
+    
+    <div>
+        <input type="text" id="username" placeholder="Enter your name">
+        <div id="timer">00:00:00</div>
+        <div id="total-time">Total Study Time: 00:00:00</div>
+        
+        <button id="start-study">Start Studying</button>
+        <button id="stop-study" disabled>Stop Studying</button>
+    </div>
+
+    <h2>Study Time Rankings</h2>
+    <table id="rankings">
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Username</th>
+                <th>Total Study Time</th>
+            </tr>
+        </thead>
+        <tbody id="rankings-body">
+            <!-- Rankings will be populated here -->
+        </tbody>
+    </table>
+
+    <script>
+        // Local storage key for rankings
+        const RANKINGS_KEY = 'studyRankings';
+
+        // DOM Elements
+        const usernameInput = document.getElementById('username');
+        const timerDisplay = document.getElementById('timer');
+        const totalTimeDisplay = document.getElementById('total-time');
+        const startButton = document.getElementById('start-study');
+        const stopButton = document.getElementById('stop-study');
+        const rankingsBody = document.getElementById('rankings-body');
+
+        let startTime, timerInterval, totalSeconds = 0;
+        let rankings = JSON.parse(localStorage.getItem(RANKINGS_KEY)) || [];
+
+        function formatTime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            return [hours, minutes, secs]
+                .map(v => v.toString().padStart(2, '0'))
+                .join(':');
+        }
+
+        function startStudy() {
+            if (!usernameInput.value) {
+                alert('Please enter your name');
+                return;
+            }
+
+            startTime = Date.now();
+            startButton.disabled = true;
+            stopButton.disabled = false;
+
+            timerInterval = setInterval(() => {
+                const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+                timerDisplay.textContent = formatTime(elapsedSeconds);
+            }, 1000);
+        }
+
+        function stopStudy() {
+            clearInterval(timerInterval);
+            const sessionSeconds = Math.floor((Date.now() - startTime) / 1000);
+            
+            // Update or add user to rankings
+            const username = usernameInput.value;
+            const existingUserIndex = rankings.findIndex(r => r.username === username);
+
+            if (existingUserIndex !== -1) {
+                rankings[existingUserIndex].totalTime += sessionSeconds;
+            } else {
+                rankings.push({
+                    username,
+                    totalTime: sessionSeconds
+                });
+            }
+
+            // Sort rankings
+            rankings.sort((a, b) => b.totalTime - a.totalTime);
+
+            // Limit to top 10
+            rankings = rankings.slice(0, 10);
+
+            // Save to local storage
+            localStorage.setItem(RANKINGS_KEY, JSON.stringify(rankings));
+
+            // Update UI
+            totalSeconds += sessionSeconds;
+            totalTimeDisplay.textContent = `Total Study Time: ${formatTime(totalSeconds)}`;
+            timerDisplay.textContent = '00:00:00';
+
+            startButton.disabled = false;
+            stopButton.disabled = true;
+
+            // Refresh rankings display
+            displayRankings();
+        }
+
+        function displayRankings() {
+            rankingsBody.innerHTML = '';
+            rankings.forEach((entry, index) => {
+                const row = rankingsBody.insertRow();
+                row.insertCell(0).textContent = index + 1;
+                row.insertCell(1).textContent = entry.username;
+                row.insertCell(2).textContent = formatTime(entry.totalTime);
+            });
+        }
+
+        // Initial rankings display
+        displayRankings();
+
+        // Event Listeners
+        startButton.addEventListener('click', startStudy);
+        stopButton.addEventListener('click', stopStudy);
+    </script>
+</body>
+</html>
