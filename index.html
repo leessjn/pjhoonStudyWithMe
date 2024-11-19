@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>Study Time Tracker</title>
-    <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; max-width: 800px; margin: 0 auto; }
         #videoInput, #canvasOutput { max-width: 100%; display: block; margin: 10px auto; }
@@ -42,7 +41,9 @@
         </table>
     </div>
 
+    <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
     <script>
+        // Global variables
         let videoInput, canvasOutput, videoCapture;
         let studyTimer;
         let totalSeconds = 0;
@@ -50,7 +51,6 @@
         let isStudying = false;
         let isDistracted = false;
         let distractionStartTime = 0;
-        let isOpenCvLoaded = false;
 
         function showStatus(message, isError = true) {
             const statusEl = document.getElementById('status');
@@ -59,7 +59,35 @@
             statusEl.style.color = isError ? 'red' : 'green';
         }
 
-        // Rankings management functions remain the same as in previous version
+        // Ranking functions (same as before)
+        function loadRankings() {
+            const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
+            rankings.sort((a, b) => b.total_study_time - a.total_study_time);
+            return rankings;
+        }
+
+        function saveRankings(rankings) {
+            localStorage.setItem('studyRankings', JSON.stringify(rankings));
+            displayRankings(rankings);
+        }
+
+        function displayRankings(rankings) {
+            const rankingsBody = document.getElementById('rankingsBody');
+            rankingsBody.innerHTML = rankings.map((rank, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${rank.name}</td>
+                    <td>${formatTime(rank.total_study_time)}</td>
+                </tr>
+            `).join('');
+        }
+
+        function formatTime(totalSecs) {
+            const hours = Math.floor(totalSecs / 3600);
+            const minutes = Math.floor((totalSecs % 3600) / 60);
+            const seconds = totalSecs % 60;
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
 
         function updateTimerDisplay() {
             document.getElementById('timer').textContent = formatTime(sessionSeconds);
@@ -119,7 +147,7 @@
         }
 
         function processVideo() {
-            if (!isStudying || !isOpenCvLoaded) return;
+            if (!isStudying || !window.cv) return;
 
             try {
                 let src = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
@@ -199,8 +227,15 @@
             updateTimerDisplay();
         }
 
-        function onOpenCvReady() {
+        function initializeOpenCV() {
             try {
+                // Wait for OpenCV to be fully loaded
+                if (!window.cv) {
+                    showStatus("Waiting for OpenCV to load...");
+                    setTimeout(initializeOpenCV, 100);
+                    return;
+                }
+
                 videoInput = document.getElementById('videoInput');
                 canvasOutput = document.getElementById('canvasOutput');
                 
@@ -216,44 +251,50 @@
                 // Load existing rankings
                 displayRankings(loadRankings());
                 
-                isOpenCvLoaded = true;
                 showStatus("Ready to start studying!", false);
             } catch (error) {
                 console.error("OpenCV initialization error:", error);
-                showStatus("Failed to initialize OpenCV. Please refresh.");
+                showStatus("Failed to initialize. Refresh the page.");
             }
         }
 
         function initializeWebcam() {
-            navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
-                .then(stream => {
-                    const videoInput = document.getElementById('videoInput');
-                    videoInput.srcObject = stream;
-                    videoInput.onloadedmetadata = () => {
-                        videoInput.play();
-                        loadOpenCV();
-                    };
-                })
-                .catch(err => {
-                    console.error("Webcam access error", err);
-                    showStatus("Webcam access denied. Please allow camera access.");
-                });
-        }
-
-        function loadOpenCV() {
-            let script = document.createElement('script');
-            script.setAttribute('async', '');
-            script.setAttribute('type', 'text/javascript');
-            script.addEventListener('load', onOpenCvReady);
-            script.addEventListener('error', () => {
-                showStatus("Failed to load OpenCV. Check your internet connection.");
+            navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    width: { ideal: 640 }, 
+                    height: { ideal: 480 } 
+                } 
+            })
+            .then(stream => {
+                const videoInput = document.getElementById('videoInput');
+                videoInput.srcObject = stream;
+                videoInput.onloadedmetadata = () => {
+                    videoInput.play();
+                    
+                    // Check if OpenCV is already loaded
+                    if (window.cv) {
+                        initializeOpenCV();
+                    } else {
+                        // If not, wait a bit and then try initialization
+                        document.addEventListener('opencv_loaded', initializeOpenCV);
+                    }
+                };
+            })
+            .catch(err => {
+                console.error("Webcam access error", err);
+                showStatus("Webcam access denied. Please allow camera access.");
             });
-            script.src = 'https://docs.opencv.org/4.5.2/opencv.js';
-            document.head.appendChild(script);
         }
 
-        // Initialize on page load
+        // Trigger initialization when page loads
         document.addEventListener('DOMContentLoaded', initializeWebcam);
+
+        // Fallback OpenCV loading check
+        setTimeout(() => {
+            if (!window.cv) {
+                showStatus("OpenCV failed to load. Check your internet connection.");
+            }
+        }, 5000);
     </script>
 </body>
 </html>
