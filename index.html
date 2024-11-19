@@ -3,31 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <title>Study Time Tracker</title>
-    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; max-width: 600px; margin: 0 auto; }
-        #video, #canvas { max-width: 100%; display: block; margin: 10px auto; }
-        button { margin: 10px; padding: 10px; }
-        #rankings { margin-top: 20px; }
+        body { font-family: Arial, sans-serif; text-align: center; }
+        #video { max-width: 100%; }
     </style>
 </head>
 <body>
     <h1>Study Time Tracker</h1>
     
-    <div id="timer">00:00:00</div>
-    <div id="total-time">Total Study Time: 00:00:00</div>
-    
-    <video id="video" width="640" height="480" autoplay muted></video>
-    <canvas id="canvas"></canvas>
-
     <div>
+        <input type="text" id="username" placeholder="Enter your name">
         <button id="start-btn">Start Studying</button>
         <button id="stop-btn" disabled>Stop Studying</button>
     </div>
 
+    <video id="video" autoplay></video>
+
     <div id="rankings">
         <h2>Study Time Rankings</h2>
-        <table>
+        <table id="rankings-table">
             <thead>
                 <tr>
                     <th>Rank</th>
@@ -35,129 +29,45 @@
                     <th>Total Study Time</th>
                 </tr>
             </thead>
-            <tbody id="rankings-body"></tbody>
+            <tbody></tbody>
         </table>
     </div>
 
     <script>
-        // Face detection and study tracking
         const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const timerDisplay = document.getElementById('timer');
-        const totalTimeDisplay = document.getElementById('total-time');
+        const usernameInput = document.getElementById('username');
         const startBtn = document.getElementById('start-btn');
         const stopBtn = document.getElementById('stop-btn');
-        const rankingsBody = document.getElementById('rankings-body');
+        const rankingsTable = document.querySelector('#rankings-table tbody');
 
-        let studyTimer;
-        let totalSeconds = 0;
-        let sessionSeconds = 0;
-        let isStudying = false;
-        let modelLoaded = false;
+        video.src = '/video_feed';
 
-        // Load face detection models
-        async function loadModels() {
-            await Promise.all([
-                faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
-                faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
-            ]);
-            modelLoaded = true;
-        }
-
-        // Initialize webcam
-        async function startWebcam() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
-            video.srcObject = stream;
-        }
-
-        // Detect face and manage study time
-        async function detectFace() {
-            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
-            
-            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-            faceapi.draw.drawDetections(canvas, detections);
-
-            if (detections.length > 0 && isStudying) {
-                sessionSeconds++;
-                totalSeconds++;
-                updateTimerDisplays();
-            }
-        }
-
-        // Update timer displays
-        function updateTimerDisplays() {
-            const formatTime = (totalSecs) => {
-                const hours = Math.floor(totalSecs / 3600);
-                const minutes = Math.floor((totalSecs % 3600) / 60);
-                const seconds = totalSecs % 60;
-                return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-            };
-
-            timerDisplay.textContent = formatTime(sessionSeconds);
-            totalTimeDisplay.textContent = `Total Study Time: ${formatTime(totalSeconds)}`;
-        }
-
-        // Start studying
         startBtn.onclick = async () => {
-            if (!modelLoaded) await loadModels();
-            
-            isStudying = true;
+            const username = usernameInput.value || 'Anonymous';
+            const response = await fetch('/start_study', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+            });
             startBtn.disabled = true;
             stopBtn.disabled = false;
-
-            studyTimer = setInterval(detectFace, 1000);
         };
 
-        // Stop studying
-        stopBtn.onclick = () => {
-            isStudying = false;
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            clearInterval(studyTimer);
-            sessionSeconds = 0;
-            updateTimerDisplays();
-            saveStudyTime();
-        };
-
-        // Save study time to local storage
-        function saveStudyTime() {
-            const username = prompt('Enter your username:') || 'Anonymous';
-            const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
+        stopBtn.onclick = async () => {
+            const response = await fetch('/stop_study', { method: 'POST' });
+            const data = await response.json();
             
-            const userRank = rankings.find(r => r.name === username);
-            if (userRank) {
-                userRank.total_study_time += totalSeconds;
-            } else {
-                rankings.push({ name: username, total_study_time: totalSeconds });
-            }
-
-            rankings.sort((a, b) => b.total_study_time - a.total_study_time);
-            localStorage.setItem('studyRankings', JSON.stringify(rankings));
-            displayRankings(rankings);
-        }
-
-        // Display rankings
-        function displayRankings(rankings) {
-            rankingsBody.innerHTML = rankings.map((rank, index) => `
+            rankingsTable.innerHTML = data.rankings.map((rank, index) => `
                 <tr>
                     <td>${index + 1}</td>
                     <td>${rank.name}</td>
-                    <td>${formatTime(rank.total_study_time)}</td>
+                    <td>${rank.total_study_time} seconds</td>
                 </tr>
             `).join('');
-        }
 
-        // Utility function to format time
-        function formatTime(totalSecs) {
-            const hours = Math.floor(totalSecs / 3600);
-            const minutes = Math.floor((totalSecs % 3600) / 60);
-            const seconds = totalSecs % 60;
-            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        }
-
-        // Initialize
-        startWebcam();
-        loadModels();
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        };
     </script>
 </body>
-</html>v
+</html>
