@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <title>Study Time Tracker</title>
-    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; max-width: 600px; margin: 0 auto; }
-        #video, #canvas { max-width: 100%; display: block; margin: 10px auto; }
+        body { font-family: Arial, sans-serif; text-align: center; max-width: 800px; margin: 0 auto; }
+        #videoInput, #canvasOutput { max-width: 100%; display: block; margin: 10px auto; }
         button { margin: 10px; padding: 10px; }
-        #rankings { margin-top: 20px; }
     </style>
 </head>
 <body>
@@ -17,12 +16,13 @@
     <div id="timer">00:00:00</div>
     <div id="total-time">Total Study Time: 00:00:00</div>
     
-    <video id="video" width="640" height="480" autoplay muted></video>
-    <canvas id="canvas"></canvas>
+    <video id="videoInput" width="640" height="480" autoplay></video>
+    <canvas id="canvasOutput"></canvas>
 
     <div>
-        <button id="start-btn">Start Studying</button>
-        <button id="stop-btn" disabled>Stop Studying</button>
+        <input type="text" id="username" placeholder="Enter your username">
+        <button id="startBtn">Start Studying</button>
+        <button id="stopBtn" disabled>Stop Studying</button>
     </div>
 
     <div id="rankings">
@@ -35,109 +35,34 @@
                     <th>Total Study Time</th>
                 </tr>
             </thead>
-            <tbody id="rankings-body"></tbody>
+            <tbody id="rankingsBody"></tbody>
         </table>
     </div>
 
     <script>
-        // Face detection and study tracking
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const timerDisplay = document.getElementById('timer');
-        const totalTimeDisplay = document.getElementById('total-time');
-        const startBtn = document.getElementById('start-btn');
-        const stopBtn = document.getElementById('stop-btn');
-        const rankingsBody = document.getElementById('rankings-body');
-
+        let videoInput, canvasOutput, videoCapture;
+        let faceClassifier;
         let studyTimer;
         let totalSeconds = 0;
         let sessionSeconds = 0;
         let isStudying = false;
-        let modelLoaded = false;
+        let isDistracted = false;
+        let distractionStartTime = 0;
 
-        // Load face detection models
-        async function loadModels() {
-            await Promise.all([
-                faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
-                faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
-            ]);
-            modelLoaded = true;
-        }
-
-        // Initialize webcam
-        async function startWebcam() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
-            video.srcObject = stream;
-        }
-
-        // Detect face and manage study time
-        async function detectFace() {
-            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
-            
-            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-            faceapi.draw.drawDetections(canvas, detections);
-
-            if (detections.length > 0 && isStudying) {
-                sessionSeconds++;
-                totalSeconds++;
-                updateTimerDisplays();
-            }
-        }
-
-        // Update timer displays
-        function updateTimerDisplays() {
-            const formatTime = (totalSecs) => {
-                const hours = Math.floor(totalSecs / 3600);
-                const minutes = Math.floor((totalSecs % 3600) / 60);
-                const seconds = totalSecs % 60;
-                return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-            };
-
-            timerDisplay.textContent = formatTime(sessionSeconds);
-            totalTimeDisplay.textContent = `Total Study Time: ${formatTime(totalSeconds)}`;
-        }
-
-        // Start studying
-        startBtn.onclick = async () => {
-            if (!modelLoaded) await loadModels();
-            
-            isStudying = true;
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-
-            studyTimer = setInterval(detectFace, 1000);
-        };
-
-        // Stop studying
-        stopBtn.onclick = () => {
-            isStudying = false;
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            clearInterval(studyTimer);
-            sessionSeconds = 0;
-            updateTimerDisplays();
-            saveStudyTime();
-        };
-
-        // Save study time to local storage
-        function saveStudyTime() {
-            const username = prompt('Enter your username:') || 'Anonymous';
+        // Rankings management
+        function loadRankings() {
             const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
-            
-            const userRank = rankings.find(r => r.name === username);
-            if (userRank) {
-                userRank.total_study_time += totalSeconds;
-            } else {
-                rankings.push({ name: username, total_study_time: totalSeconds });
-            }
-
             rankings.sort((a, b) => b.total_study_time - a.total_study_time);
+            return rankings;
+        }
+
+        function saveRankings(rankings) {
             localStorage.setItem('studyRankings', JSON.stringify(rankings));
             displayRankings(rankings);
         }
 
-        // Display rankings
         function displayRankings(rankings) {
+            const rankingsBody = document.getElementById('rankingsBody');
             rankingsBody.innerHTML = rankings.map((rank, index) => `
                 <tr>
                     <td>${index + 1}</td>
@@ -147,7 +72,6 @@
             `).join('');
         }
 
-        // Utility function to format time
         function formatTime(totalSecs) {
             const hours = Math.floor(totalSecs / 3600);
             const minutes = Math.floor((totalSecs % 3600) / 60);
@@ -155,9 +79,170 @@
             return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }
 
-        // Initialize
-        startWebcam();
-        loadModels();
+        function updateTimerDisplay() {
+            document.getElementById('timer').textContent = formatTime(sessionSeconds);
+            document.getElementById('total-time').textContent = `Total Study Time: ${formatTime(totalSeconds)}`;
+        }
+
+        function detectDistraction(src) {
+            let gray = new cv.Mat();
+            let binary = new cv.Mat();
+            
+            // Convert to grayscale
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            
+            // Binary thresholding
+            cv.threshold(gray, binary, 50, 255, cv.THRESH_BINARY_INV);
+            
+            // Find contours
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
+            cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            
+            for (let i = 0; i < contours.size(); i++) {
+                let contour = contours.get(i);
+                let rect = cv.boundingRect(contour);
+                
+                // Aspect ratio and area checks similar to C++ implementation
+                let aspectRatio = rect.width / rect.height;
+                let area = cv.contourArea(contour);
+                
+                if (aspectRatio >= 0.4 && aspectRatio <= 2.5 && 
+                    area > 5000 && area < 100000) {
+                    
+                    // Draw red rectangle for distraction
+                    cv.rectangle(src, 
+                        new cv.Point(rect.x, rect.y), 
+                        new cv.Point(rect.x + rect.width, rect.y + rect.height), 
+                        [0, 0, 255, 255], 2
+                    );
+                    
+                    // Free memory
+                    gray.delete(); binary.delete(); 
+                    contours.delete(); hierarchy.delete();
+                    
+                    return true;
+                }
+            }
+            
+            // Free memory
+            gray.delete(); binary.delete(); 
+            contours.delete(); hierarchy.delete();
+            
+            return false;
+        }
+
+        function processVideo() {
+            if (!isStudying) return;
+
+            let username = document.getElementById('username').value || 'Anonymous';
+            let src = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
+            let dst = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
+            
+            videoCapture.read(src);
+            src.copyTo(dst);
+
+            let detectedDistraction = detectDistraction(dst);
+            
+            if (detectedDistraction) {
+                if (!isDistracted) {
+                    isDistracted = true;
+                    distractionStartTime = Date.now();
+                }
+                
+                // More than 5 seconds of distraction
+                if (Date.now() - distractionStartTime > 5000) {
+                    isStudying = false;
+                }
+            } else {
+                isDistracted = false;
+                sessionSeconds++;
+                totalSeconds++;
+            }
+
+            // Draw canvas
+            cv.imshow('canvasOutput', dst);
+            
+            // Update display
+            updateTimerDisplay();
+            
+            // Free memory
+            src.delete(); dst.delete();
+        }
+
+        function startStudy() {
+            const username = document.getElementById('username').value || 'Anonymous';
+            if (!username) {
+                alert('Please enter a username');
+                return;
+            }
+
+            isStudying = true;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            
+            studyTimer = setInterval(processVideo, 1000);
+        }
+
+        function stopStudy() {
+            clearInterval(studyTimer);
+            
+            const username = document.getElementById('username').value || 'Anonymous';
+            const rankings = loadRankings();
+            
+            const userRankIndex = rankings.findIndex(r => r.name === username);
+            if (userRankIndex !== -1) {
+                rankings[userRankIndex].total_study_time += totalSeconds;
+            } else {
+                rankings.push({ name: username, total_study_time: totalSeconds });
+            }
+            
+            rankings.sort((a, b) => b.total_study_time - a.total_study_time);
+            saveRankings(rankings);
+            
+            // Reset
+            isStudying = false;
+            sessionSeconds = 0;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            updateTimerDisplay();
+        }
+
+        // OpenCV initialization
+        function onOpenCvReady() {
+            videoInput = document.getElementById('videoInput');
+            canvasOutput = document.getElementById('canvasOutput');
+            
+            // Setup video capture
+            videoCapture = new cv.VideoCapture(videoInput);
+            
+            document.getElementById('startBtn').onclick = startStudy;
+            document.getElementById('stopBtn').onclick = stopStudy;
+            
+            // Load existing rankings
+            displayRankings(loadRankings());
+        }
+
+        // OpenCV script loading
+        function loadOpenCV() {
+            let script = document.createElement('script');
+            script.setAttribute('async', '');
+            script.setAttribute('type', 'text/javascript');
+            script.addEventListener('load', onOpenCvReady);
+            script.src = 'https://docs.opencv.org/4.5.2/opencv.js';
+            document.head.appendChild(script);
+        }
+
+        // Request webcam access
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                videoInput.srcObject = stream;
+                loadOpenCV();
+            })
+            .catch(err => {
+                console.error("Webcam access denied", err);
+                alert("Webcam access is required");
+            });
     </script>
 </body>
 </html>
