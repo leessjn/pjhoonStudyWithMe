@@ -89,12 +89,9 @@
         let distractionStartTime = 0;
         let cvLoaded = false;
         let webcamLoaded = false;
-        let classifier;
+        let faceCascade = null;
         let processingFrame = false;
         let animationFrameId = null;
-
-        // Constants for face detection
-        const HAAR_CASCADE_XML = 'https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml';
 
         function showStatus(message, isError = null) {
             const statusEl = document.getElementById('status');
@@ -121,35 +118,49 @@
             document.getElementById('total-time').textContent = formatTime(totalSeconds);
         }
 
-        async function loadClassifier() {
+        async function loadFaceCascade() {
             try {
-                const response = await fetch(HAAR_CASCADE_XML);
-                const buffer = await response.arrayBuffer();
-                classifier = new cv.CascadeClassifier();
-                const utils = new cv.Utils('');
-                const mat = utils.createMat(buffer);
-                classifier.load(mat);
-                mat.delete();
+                const response = await fetch('https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml');
+                const xmlText = await response.text();
+                
+                // Create a Blob from the XML text
+                const blob = new Blob([xmlText], { type: 'application/xml' });
+                const url = URL.createObjectURL(blob);
+                
+                // Create and load the cascade classifier
+                faceCascade = new cv.CascadeClassifier();
+                const result = faceCascade.load(url);
+                
+                URL.revokeObjectURL(url);
+                
+                if (!result) {
+                    throw new Error('Failed to load cascade classifier');
+                }
+                
                 return true;
             } catch (error) {
-                console.error('Error loading classifier:', error);
+                console.error('Error loading cascade classifier:', error);
                 showStatus('Error loading face detection. Please refresh the page.', true);
                 return false;
             }
         }
 
         function detectFace(gray) {
+            if (!faceCascade) return false;
+            
             try {
                 const faces = new cv.RectVector();
-                classifier.detectMultiScale(gray, faces, 1.1, 3, 0);
+                // Detect faces
+                faceCascade.detectMultiScale(gray, faces, 1.1, 3, 0);
                 const faceDetected = faces.size() > 0;
                 
+                // Draw rectangles around detected faces
                 if (faceDetected) {
                     for (let i = 0; i < faces.size(); ++i) {
                         const face = faces.get(i);
                         const point1 = new cv.Point(face.x, face.y);
                         const point2 = new cv.Point(face.x + face.width, face.y + face.height);
-                        cv.rectangle(gray, point1, point2, [255, 0, 0, 255], 2);
+                        cv.rectangle(gray, point1, point2, new cv.Scalar(255, 0, 0, 255), 2);
                     }
                 }
                 
@@ -166,18 +177,15 @@
             processingFrame = true;
 
             try {
+                const cap = new cv.VideoCapture(videoInput);
                 let src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
                 let dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
                 let gray = new cv.Mat();
                 
-                let ctx = canvasOutput.getContext('2d');
-                ctx.drawImage(videoInput, 0, 0, canvasOutput.width, canvasOutput.height);
-                
-                let imageData = ctx.getImageData(0, 0, canvasOutput.width, canvasOutput.height);
-                src.data.set(imageData.data);
+                cap.read(src);
                 src.copyTo(dst);
+                cv.cvtColor(dst, gray, cv.COLOR_RGBA2GRAY, 0);
                 
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
                 const faceDetected = detectFace(gray);
 
                 if (!faceDetected) {
@@ -200,7 +208,7 @@
                     updateTimerDisplay();
                 }
 
-                cv.imshow('canvasOutput', dst);
+                cv.imshow('canvasOutput', gray);
                 
                 src.delete();
                 dst.delete();
@@ -219,15 +227,18 @@
         }
 
         async function initCV() {
-            showStatus("Loading face detection...");
-            if (await loadClassifier()) {
+            if (cv && cv.CascadeClassifier) {
+                showStatus("Loading face detection...");
+                await loadFaceCascade();
                 checkInitialization();
+            } else {
+                showStatus("OpenCV.js not loaded properly. Please refresh the page.", true);
             }
         }
 
         function checkInitialization() {
             const startBtn = document.getElementById('startBtn');
-            if (cvLoaded && webcamLoaded && classifier) {
+            if (cvLoaded && webcamLoaded && faceCascade) {
                 try {
                     if (videoInput.videoWidth > 0 && videoInput.videoHeight > 0) {
                         startBtn.disabled = false;
