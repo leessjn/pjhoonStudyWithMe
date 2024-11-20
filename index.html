@@ -78,12 +78,36 @@
         let isStudying = false;
         let modelLoaded = false;
         let webcamLoaded = false;
+        let studyTimer;
         let lastFaceDetectionTime = 0;
-        let startTime = 0;
-        let lastUpdateTime = 0;
-        const FACE_CHECK_INTERVAL = 1000;
-        const MAX_NO_FACE_TIME = 5000;
-        const BACKEND_URL = 'https://your-backend-server.com/api'; // 서버 URL을 실제 서버 주소로 변경하세요
+        let lastTimestamp = 0;
+        const FACE_CHECK_INTERVAL = 1000; // Check for face every second
+        const MAX_NO_FACE_TIME = 5000; // Stop after 5 seconds without face
+        let worker = null;
+
+        // Web Worker 코드를 Blob으로 생성
+        const workerCode = `
+            let timerInterval;
+            
+            self.onmessage = function(e) {
+                if (e.data === 'start') {
+                    let lastTime = Date.now();
+                    timerInterval = setInterval(() => {
+                        const currentTime = Date.now();
+                        const elapsed = currentTime - lastTime;
+                        if (elapsed >= 1000) {
+                            self.postMessage('tick');
+                            lastTime = currentTime;
+                        }
+                    }, 100); // 더 정확한 시간 측정을 위해 100ms 간격으로 체크
+                } else if (e.data === 'stop') {
+                    clearInterval(timerInterval);
+                }
+            };
+        `;
+
+        const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(workerBlob);
 
         function showStatus(message, isError = true) {
             const statusEl = document.getElementById('status');
@@ -108,29 +132,6 @@
         function updateTimerDisplay() {
             document.getElementById('timer').textContent = formatTime(sessionSeconds);
             document.getElementById('total-time').textContent = formatTime(totalSeconds);
-        }
-
-        // 서버와 랭킹 동기화
-        async function syncRankings(username, seconds) {
-            try {
-                const response = await fetch(`${BACKEND_URL}/rankings`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        username: username,
-                        studyTime: seconds
-                    })
-                });
-                
-                if (!response.ok) {
-                    throw new Error('Failed to sync rankings');
-                }
-            } catch (error) {
-                console.error('Error syncing rankings:', error);
-                showStatus('Failed to sync study time with server', true);
-            }
         }
 
         function checkInitialization() {
@@ -160,17 +161,6 @@
                 if (detections.length > 0) {
                     lastFaceDetectionTime = Date.now();
                     
-                    // 정확한 시간 계산
-                    const currentTime = Date.now();
-                    const elapsedSeconds = Math.floor((currentTime - lastUpdateTime) / 1000);
-                    
-                    if (elapsedSeconds >= 1) {
-                        sessionSeconds += elapsedSeconds;
-                        totalSeconds += elapsedSeconds;
-                        updateTimerDisplay();
-                        lastUpdateTime = currentTime;
-                    }
-                    
                     // Draw face detections
                     const displaySize = { width: canvasOutput.width, height: canvasOutput.height };
                     const normalizedDetections = faceapi.resizeResults(detections, displaySize);
@@ -181,8 +171,7 @@
                     return;
                 }
 
-                // 브라우저가 백그라운드에 있어도 계속 실행되도록 setTimeout 사용
-                setTimeout(detectFace, FACE_CHECK_INTERVAL);
+                requestAnimationFrame(detectFace);
             } catch (error) {
                 console.error("Face detection error:", error);
                 showStatus("Face detection error. Please restart.");
@@ -202,13 +191,25 @@
         
             try {
                 isStudying = true;
-                startTime = Date.now();
-                lastUpdateTime = startTime;
                 document.getElementById('startBtn').disabled = true;
                 document.getElementById('stopBtn').disabled = false;
                 document.getElementById('timer').parentElement.classList.add('study-active');
                 showStatus("Study session started!", false);
                 lastFaceDetectionTime = Date.now();
+                
+                // Web Worker 시작
+                if (!worker) {
+                    worker = new Worker(workerUrl);
+                    worker.onmessage = function(e) {
+                        if (e.data === 'tick' && isStudying) {
+                            sessionSeconds++;
+                            totalSeconds++;
+                            updateTimerDisplay();
+                        }
+                    };
+                }
+                worker.postMessage('start');
+                
                 detectFace();
             } catch (error) {
                 console.error("Error starting study session:", error);
@@ -217,14 +218,25 @@
             }
         }
 
-        async function stopStudy() {
+        function stopStudy() {
             if (!isStudying) return;
             
             isStudying = false;
+            if (worker) {
+                worker.postMessage('stop');
+            }
+            
             const username = document.getElementById('username').value.trim();
             
             if (sessionSeconds > 0) {
-                await syncRankings(username, sessionSeconds);
+                const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
+                const userRankIndex = rankings.findIndex(r => r.name === username);
+                if (userRankIndex !== -1) {
+                    rankings[userRankIndex].total_study_time += sessionSeconds;
+                } else {
+                    rankings.push({ name: username, total_study_time: sessionSeconds });
+                }
+                localStorage.setItem('studyRankings', JSON.stringify(rankings));
             }
             
             sessionSeconds = 0;
@@ -274,15 +286,11 @@
             }
         }
 
-        // 페이지 가시성 변경 감지
+        // Page Visibility API 처리
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
-                console.log('Page is now hidden');
-            } else {
-                console.log('Page is now visible');
-                if (isStudying) {
-                    lastUpdateTime = Date.now(); // 페이지가 다시 보일 때 시간 업데이트
-                }
+                // 페이지가 숨겨져도 타이머는 계속 동작
+                console.log("Page hidden but timer continues");
             }
         });
 
@@ -294,6 +302,14 @@
             
             loadFaceAPI();
             initWebcam();
+        });
+
+        // 페이지 언로드 시 Web Worker 정리
+        window.addEventListener('beforeunload', () => {
+            if (worker) {
+                worker.terminate();
+                URL.revokeObjectURL(workerUrl);
+            }
         });
     </script>
 </body>
