@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Study With DSHS - Study Time Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <style>
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .study-active {
+            animation: pulse 2s infinite;
+        }
+    </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
     <nav class="bg-white shadow-lg">
@@ -14,8 +24,8 @@
                     <span class="text-2xl font-bold text-indigo-600">Study With DSHS</span>
                 </div>
                 <div class="flex items-center">
-                    <a href="index.html" class="text-gray-600 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium">
-                        Back to Study
+                    <a href="rankings.html" class="text-gray-600 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium">
+                        View Rankings
                     </a>
                 </div>
             </div>
@@ -23,25 +33,69 @@
     </nav>
 
     <main class="max-w-4xl mx-auto px-4 py-8">
-        <div class="bg-white rounded-lg shadow-lg p-6">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6">Study Time Rankings</h2>
-            
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Study Time</th>
-                        </tr>
-                    </thead>
-                    <tbody id="rankingsBody" class="bg-white divide-y divide-gray-200"></tbody>
-                </table>
+        <div id="status" class="mb-4 p-4 rounded-lg bg-gray-100 text-gray-700">Initializing...</div>
+
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div class="text-center p-6 bg-gray-50 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-2">Session Time</h2>
+                    <div id="timer" class="text-4xl font-bold text-indigo-600">00:00:00</div>
+                </div>
+                <div class="text-center p-6 bg-gray-50 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-2">Total Study Time</h2>
+                    <div id="total-time" class="text-4xl font-bold text-indigo-600">00:00:00</div>
+                </div>
             </div>
+
+            <div class="space-y-4">
+                <div class="flex gap-4">
+                    <input type="text" id="username" placeholder="Enter your username" 
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <button id="startBtn" disabled 
+                            class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Start Studying
+                    </button>
+                    <button id="stopBtn" disabled 
+                            class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Stop
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <div class="aspect-w-16 aspect-h-9 mb-4">
+                <video id="videoInput" class="rounded-lg w-full h-full object-cover" autoplay playsinline muted></video>
+            </div>
+            <canvas id="canvasOutput" class="rounded-lg w-full"></canvas>
         </div>
     </main>
 
     <script>
+        let videoInput, canvasOutput;
+        let totalSeconds = 0;
+        let sessionSeconds = 0;
+        let isStudying = false;
+        let modelLoaded = false;
+        let webcamLoaded = false;
+        let studyTimer;
+        let lastFaceDetectionTime = 0;
+        const FACE_CHECK_INTERVAL = 1000; // Check for face every second
+        const MAX_NO_FACE_TIME = 5000; // Stop after 5 seconds without face
+
+        function showStatus(message, isError = true) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.classList.remove('bg-red-100', 'bg-green-100', 'bg-gray-100', 'text-red-700', 'text-green-700', 'text-gray-700');
+            if (isError === true) {
+                statusEl.classList.add('bg-red-100', 'text-red-700');
+            } else if (isError === false) {
+                statusEl.classList.add('bg-green-100', 'text-green-700');
+            } else {
+                statusEl.classList.add('bg-gray-100', 'text-gray-700');
+            }
+        }
+
         function formatTime(totalSecs) {
             const hours = Math.floor(totalSecs / 3600);
             const minutes = Math.floor((totalSecs % 3600) / 60);
@@ -49,28 +103,157 @@
             return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }
 
-        function loadAndDisplayRankings() {
-            const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
-            rankings.sort((a, b) => b.total_study_time - a.total_study_time);
-
-            const rankingsBody = document.getElementById('rankingsBody');
-            rankingsBody.innerHTML = rankings.map((rank, index) => `
-                <tr class="${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}">
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        ${index + 1}
-                        ${index < 3 ? ['🥇', '🥈', '🥉'][index] : ''}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${rank.name}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatTime(rank.total_study_time)}</td>
-                </tr>
-            `).join('');
+        function updateTimerDisplay() {
+            document.getElementById('timer').textContent = formatTime(sessionSeconds);
+            document.getElementById('total-time').textContent = formatTime(totalSeconds);
         }
 
-        // Load rankings when page loads
-        document.addEventListener('DOMContentLoaded', loadAndDisplayRankings);
+        function checkInitialization() {
+            const startBtn = document.getElementById('startBtn');
+            if (modelLoaded && webcamLoaded) {
+                try {
+                    if (videoInput.videoWidth > 0 && videoInput.videoHeight > 0) {
+                        startBtn.disabled = false;
+                        showStatus("Ready to start studying!", false);
+                    }
+                } catch (error) {
+                    console.error("Initialization error:", error);
+                    showStatus("Error initializing camera. Please refresh the page.");
+                    startBtn.disabled = true;
+                }
+            }
+        }
 
-        // Refresh rankings every 30 seconds
-        setInterval(loadAndDisplayRankings, 30000);
+        async function detectFace() {
+            if (!isStudying) return;
+
+            try {
+                const detections = await faceapi.detectAllFaces(videoInput, new faceapi.TinyFaceDetectorOptions());
+                const ctx = canvasOutput.getContext('2d');
+                ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
+
+                if (detections.length > 0) {
+                    lastFaceDetectionTime = Date.now();
+                    sessionSeconds++;
+                    totalSeconds++;
+                    updateTimerDisplay();
+                    
+                    // Draw face detections
+                    const displaySize = { width: canvasOutput.width, height: canvasOutput.height };
+                    const normalizedDetections = faceapi.resizeResults(detections, displaySize);
+                    faceapi.draw.drawDetections(canvasOutput, normalizedDetections);
+                } else if (Date.now() - lastFaceDetectionTime > MAX_NO_FACE_TIME) {
+                    stopStudy();
+                    showStatus("No face detected! Session paused.", true);
+                    return;
+                }
+
+                requestAnimationFrame(detectFace);
+            } catch (error) {
+                console.error("Face detection error:", error);
+                showStatus("Face detection error. Please restart.");
+                stopStudy();
+            }
+        }
+
+        async function startStudy() {
+            const username = document.getElementById('username').value.trim();
+            if (!username) {
+                showStatus("Please enter a username", true);
+                return;
+            }
+            
+            canvasOutput.width = videoInput.videoWidth;
+            canvasOutput.height = videoInput.videoHeight;
+        
+            try {
+                isStudying = true;
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('timer').parentElement.classList.add('study-active');
+                showStatus("Study session started!", false);
+                lastFaceDetectionTime = Date.now();
+                detectFace();
+            } catch (error) {
+                console.error("Error starting study session:", error);
+                showStatus("Error starting camera. Please refresh the page.", true);
+                stopStudy();
+            }
+        }
+
+        function stopStudy() {
+            if (!isStudying) return;
+            
+            isStudying = false;
+            const username = document.getElementById('username').value.trim();
+            
+            if (sessionSeconds > 0) {
+                const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
+                const userRankIndex = rankings.findIndex(r => r.name === username);
+                if (userRankIndex !== -1) {
+                    rankings[userRankIndex].total_study_time += sessionSeconds;
+                } else {
+                    rankings.push({ name: username, total_study_time: sessionSeconds });
+                }
+                localStorage.setItem('studyRankings', JSON.stringify(rankings));
+            }
+            
+            sessionSeconds = 0;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('timer').parentElement.classList.remove('study-active');
+            updateTimerDisplay();
+            showStatus("Study session ended!", false);
+        }
+
+        async function loadFaceAPI() {
+            try {
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
+                    faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
+                ]);
+                modelLoaded = true;
+                checkInitialization();
+            } catch (error) {
+                console.error("Error loading Face-API models:", error);
+                showStatus("Error loading face detection models. Please refresh the page.");
+            }
+        }
+
+        async function initWebcam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 }
+                });
+                
+                videoInput = document.getElementById('videoInput');
+                canvasOutput = document.getElementById('canvasOutput');
+                
+                videoInput.srcObject = stream;
+                
+                await new Promise((resolve) => {
+                    videoInput.onloadedmetadata = () => {
+                        videoInput.play().then(resolve);
+                    };
+                });
+                
+                webcamLoaded = true;
+                checkInitialization();
+            } catch (err) {
+                console.error("Webcam error:", err);
+                showStatus("Camera access denied. Please allow camera access and refresh.");
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            showStatus("Loading face detection models...", null);
+            
+            document.getElementById('startBtn').addEventListener('click', startStudy);
+            document.getElementById('stopBtn').addEventListener('click', stopStudy);
+            
+            loadFaceAPI();
+            initWebcam();
+        });
     </script>
 </body>
 </html>
