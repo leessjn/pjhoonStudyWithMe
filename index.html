@@ -1,12 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
-<!-- Previous head and body content remains the same until the script tag -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Focus Flow - Study Time Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script async src="https://docs.opencv.org/4.5.2/opencv.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
         @keyframes pulse {
             0%, 100% { transform: scale(1); }
@@ -18,7 +17,6 @@
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
-    <!-- Previous HTML structure remains exactly the same -->
     <nav class="bg-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
@@ -67,7 +65,7 @@
 
         <div class="bg-white rounded-lg shadow-lg p-6">
             <div class="aspect-w-16 aspect-h-9 mb-4">
-                <video id="videoInput" class="rounded-lg w-full h-full object-cover" autoplay playsinline></video>
+                <video id="videoInput" class="rounded-lg w-full h-full object-cover" autoplay playsinline muted></video>
             </div>
             <canvas id="canvasOutput" class="rounded-lg w-full"></canvas>
         </div>
@@ -78,10 +76,12 @@
         let totalSeconds = 0;
         let sessionSeconds = 0;
         let isStudying = false;
-        let isDistracted = false;
-        let distractionStartTime = 0;
-        let cvLoaded = false;
+        let modelLoaded = false;
         let webcamLoaded = false;
+        let studyTimer;
+        let lastFaceDetectionTime = 0;
+        const FACE_CHECK_INTERVAL = 1000; // Check for face every second
+        const MAX_NO_FACE_TIME = 5000; // Stop after 5 seconds without face
 
         function showStatus(message, isError = true) {
             const statusEl = document.getElementById('status');
@@ -110,7 +110,7 @@
 
         function checkInitialization() {
             const startBtn = document.getElementById('startBtn');
-            if (cvLoaded && webcamLoaded) {
+            if (modelLoaded && webcamLoaded) {
                 try {
                     if (videoInput.videoWidth > 0 && videoInput.videoHeight > 0) {
                         startBtn.disabled = false;
@@ -124,105 +124,34 @@
             }
         }
 
-        function detectDistraction(src) {
-            try {
-                let gray = new cv.Mat();
-                let binary = new cv.Mat();
-                
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-                cv.threshold(gray, binary, 50, 255, cv.THRESH_BINARY_INV);
-                
-                let contours = new cv.MatVector();
-                let hierarchy = new cv.Mat();
-                cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                
-                let isDistracted = false;
-                
-                for (let i = 0; i < contours.size(); i++) {
-                    let contour = contours.get(i);
-                    let rect = cv.boundingRect(contour);
-                    
-                    let aspectRatio = rect.width / rect.height;
-                    let area = cv.contourArea(contour);
-                    
-                    if (aspectRatio >= 0.4 && aspectRatio <= 2.5 && area > 5000 && area < 100000) {
-                        cv.rectangle(src, 
-                            new cv.Point(rect.x, rect.y), 
-                            new cv.Point(rect.x + rect.width, rect.y + rect.height), 
-                            [0, 0, 255, 255], 2
-                        );
-                        isDistracted = true;
-                    }
-                }
-                
-                gray.delete();
-                binary.delete();
-                contours.delete();
-                hierarchy.delete();
-                
-                return isDistracted;
-            } catch (error) {
-                console.error("Distraction detection error:", error);
-                return false;
-            }
-        }
-
-        function processVideo() {
+        async function detectFace() {
             if (!isStudying) return;
-        
+
             try {
-                // Create Mats for the current frame
-                let src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-                let dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-                
-                // Get the context from canvas
-                let ctx = canvasOutput.getContext('2d');
-                
-                // Draw the video frame to the canvas
-                ctx.drawImage(videoInput, 0, 0, canvasOutput.width, canvasOutput.height);
-                
-                // Load the image data from canvas to src Mat
-                let imageData = ctx.getImageData(0, 0, canvasOutput.width, canvasOutput.height);
-                src.data.set(imageData.data);
-                
-                // Copy source to destination
-                src.copyTo(dst);
-                
-                // Process the frame
-                const detectedDistraction = detectDistraction(dst);
-        
-                if (detectedDistraction) {
-                    if (!isDistracted) {
-                        isDistracted = true;
-                        distractionStartTime = Date.now();
-                    }
-        
-                    if (Date.now() - distractionStartTime > 5000) {
-                        src.delete();
-                        dst.delete();
-                        stopStudy();
-                        showStatus("Distraction detected! Session paused.", true);
-                        return;
-                    }
-                } else {
-                    isDistracted = false;
+                const detections = await faceapi.detectAllFaces(videoInput, new faceapi.TinyFaceDetectorOptions());
+                const ctx = canvasOutput.getContext('2d');
+                ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
+
+                if (detections.length > 0) {
+                    lastFaceDetectionTime = Date.now();
                     sessionSeconds++;
                     totalSeconds++;
                     updateTimerDisplay();
+                    
+                    // Draw face detections
+                    const displaySize = { width: canvasOutput.width, height: canvasOutput.height };
+                    const normalizedDetections = faceapi.resizeResults(detections, displaySize);
+                    faceapi.draw.drawDetections(canvasOutput, normalizedDetections);
+                } else if (Date.now() - lastFaceDetectionTime > MAX_NO_FACE_TIME) {
+                    stopStudy();
+                    showStatus("No face detected! Session paused.", true);
+                    return;
                 }
-        
-                // Show the processed frame
-                cv.imshow('canvasOutput', dst);
-                
-                // Clean up the Mats
-                src.delete();
-                dst.delete();
-                
-                // Schedule next frame
-                requestAnimationFrame(processVideo);
+
+                requestAnimationFrame(detectFace);
             } catch (error) {
-                console.error("Processing error:", error);
-                showStatus("Video processing error. Please restart.");
+                console.error("Face detection error:", error);
+                showStatus("Face detection error. Please restart.");
                 stopStudy();
             }
         }
@@ -234,7 +163,6 @@
                 return;
             }
             
-            // Set canvas size to match video
             canvasOutput.width = videoInput.videoWidth;
             canvasOutput.height = videoInput.videoHeight;
         
@@ -244,7 +172,8 @@
                 document.getElementById('stopBtn').disabled = false;
                 document.getElementById('timer').parentElement.classList.add('study-active');
                 showStatus("Study session started!", false);
-                processVideo();
+                lastFaceDetectionTime = Date.now();
+                detectFace();
             } catch (error) {
                 console.error("Error starting study session:", error);
                 showStatus("Error starting camera. Please refresh the page.", true);
@@ -277,13 +206,17 @@
             showStatus("Study session ended!", false);
         }
 
-        function initCV() {
-            if (window.cv && typeof window.cv.VideoCapture === 'function') {
-                cvLoaded = true;
-                showStatus("Initializing camera...", null);
+        async function loadFaceAPI() {
+            try {
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
+                    faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
+                ]);
+                modelLoaded = true;
                 checkInitialization();
-            } else {
-                setTimeout(initCV, 100);
+            } catch (error) {
+                console.error("Error loading Face-API models:", error);
+                showStatus("Error loading face detection models. Please refresh the page.");
             }
         }
 
@@ -313,12 +246,12 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            showStatus("Loading OpenCV...", null);
+            showStatus("Loading face detection models...", null);
             
             document.getElementById('startBtn').addEventListener('click', startStudy);
             document.getElementById('stopBtn').addEventListener('click', stopStudy);
             
-            initCV();
+            loadFaceAPI();
             initWebcam();
         });
     </script>
