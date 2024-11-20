@@ -113,9 +113,9 @@
             const startBtn = document.getElementById('startBtn');
             if (cvLoaded && webcamLoaded) {
                 try {
-                    // Create video capture only once when everything is ready
-                    if (!videoCapture) {
+                    if (!videoCapture && videoInput.videoWidth > 0 && videoInput.videoHeight > 0) {
                         videoCapture = new cv.VideoCapture(videoInput);
+                        console.log("VideoCapture initialized with dimensions:", videoInput.videoWidth, videoInput.videoHeight);
                     }
                     startBtn.disabled = false;
                     showStatus("Ready to start studying!", false);
@@ -174,14 +174,17 @@
             if (!isStudying) return;
         
             try {
-                // Ensure the video dimensions match
-                let src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-                let dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+                const src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+                const dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
         
                 videoCapture.read(src);
-                src.copyTo(dst);
+                if (src.empty()) {
+                    console.error("Empty frame captured. Check video input.");
+                    return;
+                }
         
-                let detectedDistraction = detectDistraction(dst);
+                src.copyTo(dst);
+                const detectedDistraction = detectDistraction(dst);
         
                 if (detectedDistraction) {
                     if (!isDistracted) {
@@ -214,6 +217,7 @@
         }
 
 
+
         async function startStudy() {
             const username = document.getElementById('username').value.trim();
             if (!username) {
@@ -221,28 +225,24 @@
                 return;
             }
         
-            // Validate video dimensions
             if (!videoInput || !videoInput.videoWidth || !videoInput.videoHeight) {
                 showStatus("Camera not ready. Please wait a moment and try again.", true);
                 return;
             }
         
             try {
-                // Test video capture
-                let testFrame = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+                const testFrame = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
                 videoCapture.read(testFrame);
         
                 if (testFrame.empty()) {
-                    throw new Error("Unable to capture video frame.");
+                    throw new Error("Unable to capture video frame. Check camera setup.");
                 }
                 testFrame.delete();
         
-                // Start study session
                 isStudying = true;
                 document.getElementById('startBtn').disabled = true;
                 document.getElementById('stopBtn').disabled = false;
                 document.getElementById('timer').parentElement.classList.add('study-active');
-        
                 showStatus("Study session started!", false);
                 processVideo();
             } catch (error) {
@@ -251,6 +251,7 @@
                 stopStudy();
             }
         }
+
 
 
 
