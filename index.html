@@ -131,7 +131,13 @@
                 }
             }
         }
-
+        // Add at the start of the script with other model loading
+        await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
+            faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
+            // Add object detection model
+            faceapi.nets.ssdMobilenetv1.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
+        ]);
         async function detectFace() {
             if (!isStudying) return;
         
@@ -288,13 +294,13 @@
                 ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
             }
         });
-        // Add at the start of the script with other model loading
-        await Promise.all([
-            faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
-            faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
-            // Add object detection model
-            faceapi.nets.ssdMobilenetv1.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
-        ]);
+        // // Add at the start of the script with other model loading
+        // await Promise.all([
+        //     faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
+        //     faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
+        //     // Add object detection model
+        //     faceapi.nets.ssdMobilenetv1.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
+        // ]);
         
         // Modify the detectFace function
         async function detectFace() {
