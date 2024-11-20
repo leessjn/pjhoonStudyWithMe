@@ -84,6 +84,16 @@
         let faceCascade;
         let processingFrame = false;
         let animationFrameId = null;
+        function onOpenCvLoad() {
+            cv['onRuntimeInitialized'] = function() {
+                cvLoaded = true;
+                classifier = new cv.CascadeClassifier();
+                // Load the pre-trained classifier file
+                classifier.load('haarcascade_frontalface_default.xml');
+                showStatus("Initializing camera...", null);
+                checkInitialization();
+            }
+        }
 
         function showStatus(message, isError = true) {
             const statusEl = document.getElementById('status');
@@ -110,87 +120,103 @@
             document.getElementById('total-time').textContent = formatTime(totalSeconds);
         }
 
-        function checkInitialization() {
-            const startBtn = document.getElementById('startBtn');
-            if (cvLoaded && webcamLoaded && faceCascade) {
-                try {
-                    if (videoInput.videoWidth > 0 && videoInput.videoHeight > 0) {
-                        startBtn.disabled = false;
-                        showStatus("Ready to start studying!", false);
-                    }
-                } catch (error) {
-                    console.error("Initialization error:", error);
-                    showStatus("Error initializing camera. Please refresh the page.");
-                    startBtn.disabled = true;
+    function detectFace(gray) {
+        try {
+            const faces = new cv.RectVector();
+            // Detect faces
+            classifier.detectMultiScale(gray, faces, 1.1, 3, 0);
+            const faceDetected = faces.size() > 0;
+            
+            // Draw rectangles around detected faces
+            if (faceDetected) {
+                for (let i = 0; i < faces.size(); ++i) {
+                    const face = faces.get(i);
+                    const point1 = new cv.Point(face.x, face.y);
+                    const point2 = new cv.Point(face.x + face.width, face.y + face.height);
+                    cv.rectangle(gray, point1, point2, [255, 0, 0, 255], 2);
                 }
             }
-        }
-
-        function detectFace(gray) {
-            const faces = new cv.RectVector();
-            faceCascade.detectMultiScale(gray, faces, 1.1, 3, 0);
-            const faceDetected = faces.size() > 0;
+            
             faces.delete();
             return faceDetected;
+        } catch (error) {
+            console.error("Face detection error:", error);
+            return false;
         }
+    }
 
-        function processVideo() {
-            if (!isStudying || processingFrame) return;
-            processingFrame = true;
+    function processVideo() {
+        if (!isStudying || processingFrame) return;
+        processingFrame = true;
 
-            try {
-                let src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-                let dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-                let gray = new cv.Mat();
-                
-                let ctx = canvasOutput.getContext('2d');
-                ctx.drawImage(videoInput, 0, 0, canvasOutput.width, canvasOutput.height);
-                
-                let imageData = ctx.getImageData(0, 0, canvasOutput.width, canvasOutput.height);
-                src.data.set(imageData.data);
-                src.copyTo(dst);
-                
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-                const faceDetected = detectFace(gray);
+        try {
+            let src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+            let dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+            let gray = new cv.Mat();
+            
+            let ctx = canvasOutput.getContext('2d');
+            ctx.drawImage(videoInput, 0, 0, canvasOutput.width, canvasOutput.height);
+            
+            let imageData = ctx.getImageData(0, 0, canvasOutput.width, canvasOutput.height);
+            src.data.set(imageData.data);
+            src.copyTo(dst);
+            
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            const faceDetected = detectFace(dst); // Changed to dst to show face detection rectangle
 
-                if (!faceDetected) {
-                    if (!isDistracted) {
-                        isDistracted = true;
-                        distractionStartTime = Date.now();
-                        showStatus("No face detected! Session will pause in 5 seconds...", true);
-                    }
-
-                    if (Date.now() - distractionStartTime > 5000) {
-                        showStatus("Session paused - No face detected", true);
-                    }
-                } else {
-                    if (isDistracted) {
-                        isDistracted = false;
-                        showStatus("Face detected - Session resumed!", false);
-                    }
-                    sessionSeconds++;
-                    totalSeconds++;
-                    updateTimerDisplay();
+            if (!faceDetected) {
+                if (!isDistracted) {
+                    isDistracted = true;
+                    distractionStartTime = Date.now();
+                    showStatus("No face detected! Session will pause in 5 seconds...", true);
                 }
 
-                cv.imshow('canvasOutput', dst);
-                
-                src.delete();
-                dst.delete();
-                gray.delete();
-                
-                processingFrame = false;
-                if (isStudying) {
-                    animationFrameId = requestAnimationFrame(processVideo);
+                if (Date.now() - distractionStartTime > 5000) {
+                    showStatus("Session paused - No face detected", true);
+                }
+            } else {
+                if (isDistracted) {
+                    isDistracted = false;
+                    showStatus("Face detected - Session resumed!", false);
+                }
+                sessionSeconds++;
+                totalSeconds++;
+                updateTimerDisplay();
+            }
+
+            cv.imshow('canvasOutput', dst);
+            
+            src.delete();
+            dst.delete();
+            gray.delete();
+            
+            processingFrame = false;
+            if (isStudying) {
+                animationFrameId = requestAnimationFrame(processVideo);
+            }
+        } catch (error) {
+            console.error("Processing error:", error);
+            showStatus("Video processing error. Please restart.");
+            stopStudy();
+            processingFrame = false;
+        }
+    }
+
+    function checkInitialization() {
+        const startBtn = document.getElementById('startBtn');
+        if (cvLoaded && webcamLoaded && classifier) {
+            try {
+                if (videoInput.videoWidth > 0 && videoInput.videoHeight > 0) {
+                    startBtn.disabled = false;
+                    showStatus("Ready to start studying!", false);
                 }
             } catch (error) {
-                console.error("Processing error:", error);
-                showStatus("Video processing error. Please restart.");
-                stopStudy();
-                processingFrame = false;
+                console.error("Initialization error:", error);
+                showStatus("Error initializing camera. Please refresh the page.");
+                startBtn.disabled = true;
             }
         }
-
+    }
         async function startStudy() {
             if (isStudying) return; // Prevent double-clicking
 
@@ -302,7 +328,6 @@
             document.getElementById('startBtn').addEventListener('click', startStudy);
             document.getElementById('stopBtn').addEventListener('click', stopStudy);
             
-            initCV();
             initWebcam();
         });
     </script>
