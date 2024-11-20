@@ -1,364 +1,122 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Smart Study Time Tracker</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
-    <style>
-        .gradient-bg {
-            background: linear-gradient(120deg, #a1c4fd 0%, #c2e9fb 100%);
-        }
-        .glass-effect {
-            background: rgba(255, 255, 255, 0.25);
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-        }
-        .video-container {
-            position: relative;
-            width: 640px;
-            max-width: 100%;
-            margin: 0 auto;
-        }
-        #videoInput, #canvasOutput {
-            width: 100%;
-            border-radius: 1rem;
-        }
-        #canvasOutput {
-            display: none;
-        }
-        .status-indicator {
-            position: absolute;
-            top: 1rem;
-            right: 1rem;
-            width: 1rem;
-            height: 1rem;
-            border-radius: 50%;
-            transition: all 0.3s ease;
-        }
-        .status-active {
-            background-color: #10B981;
-            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3);
-        }
-        .status-inactive {
-            background-color: #EF4444;
-            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
-        }
-        .stats-card {
-            background: rgba(255, 255, 255, 0.4);
-            border-radius: 0.75rem;
-            padding: 1rem;
-            margin: 0.5rem 0;
-            transition: all 0.3s ease;
-        }
-        .stats-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-    </style>
-</head>
-<body class="gradient-bg min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <h1 class="text-4xl font-bold text-gray-800 text-center mb-8">Smart Study Time Tracker</h1>
-        
-        <div id="status" class="hidden mb-4 p-4 rounded-lg text-center"></div>
-        
-        <div class="grid md:grid-cols-2 gap-8">
-            <div class="glass-effect rounded-xl p-6">
-                <div class="video-container mb-4">
-                    <div class="status-indicator" id="trackingStatus"></div>
-                    <video id="videoInput" height="480" autoplay playsinline></video>
-                    <canvas id="canvasOutput"></canvas>
-                </div>
-
-                <div class="text-center space-y-4">
-                    <div class="stats-card">
-                        <div id="timer" class="text-4xl font-mono font-bold text-gray-800">00:00:00</div>
-                        <div class="text-sm text-gray-600">Current Session</div>
-                    </div>
-                    
-                    <div class="stats-card">
-                        <div id="total-time" class="text-2xl font-mono font-bold text-gray-800">00:00:00</div>
-                        <div class="text-sm text-gray-600">Total Study Time</div>
-                    </div>
-                    
-                    <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 justify-center items-center">
-                        <input type="text" id="username" placeholder="Enter your username" 
-                               class="w-full sm:w-auto px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-400 outline-none">
-                        <div class="flex space-x-2">
-                            <button id="startBtn" disabled 
-                                    class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-all duration-200">
-                                Start Studying
-                            </button>
-                            <button id="stopBtn" disabled 
-                                    class="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 transition-all duration-200">
-                                Stop Studying
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="glass-effect rounded-xl p-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Study Time Rankings</h2>
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead>
-                            <tr class="border-b-2 border-gray-200">
-                                <th class="px-4 py-2 text-left">Rank</th>
-                                <th class="px-4 py-2 text-left">Username</th>
-                                <th class="px-4 py-2 text-left">Total Study Time</th>
-                            </tr>
-                        </thead>
-                        <tbody id="rankingsBody"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
-    <script>
-        // Global variables
-        let videoInput, canvasOutput, videoCapture;
-        let faceCascade;
-        let studyTimer;
-        let totalSeconds = 0;
-        let sessionSeconds = 0;
-        let isStudying = false;
-        let isDistracted = false;
-        let distractionStartTime = 0;
-        let lastFaceDetectionTime = 0;
-        let frameProcessing = false;
-
-        function showStatus(message, isError = true) {
-            const statusEl = document.getElementById('status');
-            statusEl.textContent = message;
-            statusEl.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
-            statusEl.classList.add(isError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700');
-        }
-
-        function updateTrackingStatus(isTracking) {
-            const statusEl = document.getElementById('trackingStatus');
-            statusEl.classList.remove('status-active', 'status-inactive');
-            statusEl.classList.add(isTracking ? 'status-active' : 'status-inactive');
-        }
-
-        function formatTime(totalSecs) {
-            const hours = Math.floor(totalSecs / 3600);
-            const minutes = Math.floor((totalSecs % 3600) / 60);
-            const seconds = totalSecs % 60;
-            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        }
-
-        function updateTimerDisplay() {
-            document.getElementById('timer').textContent = formatTime(sessionSeconds);
-            document.getElementById('total-time').textContent = formatTime(totalSeconds);
-        }
-
-        function loadRankings() {
-            const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
-            rankings.sort((a, b) => b.total_study_time - a.total_study_time);
-            return rankings;
-        }
-
-        function saveRankings(rankings) {
-            localStorage.setItem('studyRankings', JSON.stringify(rankings));
-            displayRankings(rankings);
-        }
-
-        function displayRankings(rankings) {
-            const rankingsBody = document.getElementById('rankingsBody');
-            rankingsBody.innerHTML = rankings.map((rank, index) => `
-                <tr class="border-b border-gray-200 hover:bg-white/30 transition-colors duration-200">
-                    <td class="px-4 py-2">${index + 1}</td>
-                    <td class="px-4 py-2">${rank.name}</td>
-                    <td class="px-4 py-2">${formatTime(rank.total_study_time)}</td>
-                </tr>
-            `).join('');
-        }
-
-        async function detectFace(src) {
+// Replace the detectFace function with this version:
+async function detectFace(src) {
+    try {
+        if (!faceCascade) {
+            console.log("Initializing face cascade...");
+            faceCascade = new cv.CascadeClassifier();
+            
             try {
-                if (!faceCascade) {
-                    faceCascade = new cv.CascadeClassifier();
-                    const response = await fetch('haarcascade_frontalface_default.xml');
-                    const buffer = await response.arrayBuffer();
-                    faceCascade.load(buffer);
+                const response = await fetch('./haarcascade_frontalface_default.xml');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
-
-                let gray = new cv.Mat();
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                const buffer = await response.arrayBuffer();
+                console.log("Haar cascade file loaded successfully");
                 
-                let faces = new cv.RectVector();
-                // Adjust these parameters for better face detection
-                faceCascade.detectMultiScale(gray, faces, 1.1, 3, 0, new cv.Size(30, 30));
+                const result = faceCascade.load(buffer);
+                console.log("Cascade loading result:", result);
                 
-                let faceDetected = faces.size() > 0;
-                
-                // Draw rectangles around detected faces
-                for (let i = 0; i < faces.size(); ++i) {
-                    let face = faces.get(i);
-                    let point1 = new cv.Point(face.x, face.y);
-                    let point2 = new cv.Point(face.x + face.width, face.y + face.height);
-                    cv.rectangle(src, point1, point2, [0, 255, 0, 255], 2);
-                }
-
-                if (faceDetected) {
-                    lastFaceDetectionTime = Date.now();
-                }
-
-                gray.delete();
-                faces.delete();
-
-                return faceDetected;
             } catch (error) {
-                console.error("Face detection error:", error);
+                console.error("Error loading haar cascade file:", error);
+                showStatus("Failed to load face detection. Check console for details.");
                 return false;
             }
         }
 
-        async function processVideo() {
-            if (!isStudying || !window.cv || frameProcessing) return;
-            
-            frameProcessing = true;
-            try {
-                let src = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
-                let dst = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
-                
-                videoCapture.read(src);
-                src.copyTo(dst);
-
-                const faceDetected = await detectFace(dst);
-                updateTrackingStatus(faceDetected);
-
-                if (!faceDetected && (Date.now() - lastFaceDetectionTime > 3000)) {
-                    if (!isDistracted) {
-                        isDistracted = true;
-                        distractionStartTime = Date.now();
-                    }
-                    
-                    if (Date.now() - distractionStartTime > 5000) {
-                        showStatus("Face not detected. Please return to studying.", true);
-                    }
-                } else if (faceDetected) {
-                    isDistracted = false;
-                    sessionSeconds++;
-                    totalSeconds++;
-                    showStatus("Studying...", false);
-                }
-
-                cv.imshow('canvasOutput', dst);
-                
-                src.delete();
-                dst.delete();
-            } catch (error) {
-                console.error("Video processing error:", error);
-                showStatus("Error processing video. Please restart.");
-            } finally {
-                frameProcessing = false;
+        // Create grayscale image
+        let gray = new cv.Mat();
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        
+        // Detect faces
+        let faces = new cv.RectVector();
+        try {
+            faceCascade.detectMultiScale(gray, faces, 1.1, 3, 0, new cv.Size(30, 30));
+            console.log(`Detected ${faces.size()} faces`);
+        } catch (error) {
+            console.error("Face detection failed:", error);
+            gray.delete();
+            faces.delete();
+            return false;
+        }
+        
+        let faceDetected = faces.size() > 0;
+        
+        // Draw rectangles around detected faces
+        if (faceDetected) {
+            for (let i = 0; i < faces.size(); ++i) {
+                let face = faces.get(i);
+                let point1 = new cv.Point(face.x, face.y);
+                let point2 = new cv.Point(face.x + face.width, face.y + face.height);
+                cv.rectangle(src, point1, point2, [0, 255, 0, 255], 2);
             }
+            lastFaceDetectionTime = Date.now();
         }
 
-        function startStudy() {
-            const username = document.getElementById('username').value.trim();
-            if (!username) {
-                showStatus("Please enter a username");
-                return;
-            }
+        // Cleanup
+        gray.delete();
+        faces.delete();
 
-            isStudying = true;
-            document.getElementById('startBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            document.getElementById('canvasOutput').style.display = 'block';
-            document.getElementById('videoInput').style.display = 'none';
-            
-            studyTimer = setInterval(processVideo, 1000);
-            showStatus("Study session started!", false);
+        return faceDetected;
+    } catch (error) {
+        console.error("Fatal error in face detection:", error);
+        showStatus("Face detection error. Check console for details.");
+        return false;
+    }
+}
+
+// Also modify the processVideo function with better error handling:
+async function processVideo() {
+    if (!isStudying || !window.cv || frameProcessing) return;
+    
+    frameProcessing = true;
+    let src = null;
+    let dst = null;
+    
+    try {
+        if (!videoCapture || !videoInput.videoWidth) {
+            console.error("Video capture not initialized properly");
+            showStatus("Video capture error. Please restart.");
+            return;
         }
 
-        function stopStudy() {
-            clearInterval(studyTimer);
-            
-            const username = document.getElementById('username').value.trim();
-            const rankings = loadRankings();
-            
-            const userRankIndex = rankings.findIndex(r => r.name === username);
-            if (userRankIndex !== -1) {
-                rankings[userRankIndex].total_study_time += sessionSeconds;
-            } else {
-                rankings.push({ name: username, total_study_time: sessionSeconds });
+        src = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
+        dst = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
+        
+        videoCapture.read(src);
+        src.copyTo(dst);
+
+        const faceDetected = await detectFace(dst);
+        updateTrackingStatus(faceDetected);
+
+        if (!faceDetected && (Date.now() - lastFaceDetectionTime > 3000)) {
+            if (!isDistracted) {
+                isDistracted = true;
+                distractionStartTime = Date.now();
             }
             
-            saveRankings(rankings);
-            
-            isStudying = false;
-            sessionSeconds = 0;
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-            document.getElementById('canvasOutput').style.display = 'none';
-            document.getElementById('videoInput').style.display = 'block';
-            
-            updateTimerDisplay();
-            showStatus("Study session ended!", false);
-        }
-
-        async function initializeOpenCV() {
-            try {
-                if (!window.cv) {
-                    showStatus("Waiting for OpenCV to load...");
-                    setTimeout(initializeOpenCV, 100);
-                    return;
-                }
-
-                videoInput = document.getElementById('videoInput');
-                canvasOutput = document.getElementById('canvasOutput');
-                videoCapture = new cv.VideoCapture(videoInput);
-                
-                document.getElementById('startBtn').onclick = startStudy;
-                document.getElementById('stopBtn').onclick = stopStudy;
-                document.getElementById('startBtn').disabled = false;
-                
-                displayRankings(loadRankings());
-                showStatus("Ready to start studying!", false);
-            } catch (error) {
-                console.error("OpenCV initialization error:", error);
-                showStatus("Failed to initialize. Refresh the page.");
+            if (Date.now() - distractionStartTime > 5000) {
+                showStatus("Face not detected. Please return to studying.", true);
             }
+        } else if (faceDetected) {
+            isDistracted = false;
+            sessionSeconds++;
+            totalSeconds++;
+            showStatus("Studying...", false);
         }
 
-        function initializeWebcam() {
-            navigator.mediaDevices.getUserMedia({ 
-                video: { 
-                    width: { ideal: 640 }, 
-                    height: { ideal: 480 } 
-                } 
-            })
-            .then(stream => {
-                videoInput = document.getElementById('videoInput');
-                videoInput.srcObject = stream;
-                videoInput.onloadedmetadata = () => {
-                    videoInput.play();
-                    if (window.cv) {
-                        initializeOpenCV();
-                    } else {
-                        document.addEventListener('opencv_loaded', initializeOpenCV);
-                    }
-                };
-            })
-            .catch(err => {
-                console.error("Webcam access error", err);
-                showStatus("Webcam access denied. Please allow camera access.");
-            });
-        }
+        cv.imshow('canvasOutput', dst);
+        
+    } catch (error) {
+        console.error("Video processing error:", error, "\nStack:", error.stack);
+        showStatus("Error processing video. Please restart.");
+    } finally {
+        if (src) src.delete();
+        if (dst) dst.delete();
+        frameProcessing = false;
+    }
+}
 
-        document.addEventListener('DOMContentLoaded', initializeWebcam);
-
-        setTimeout(() => {
-            if (!window.cv) {
-                showStatus("OpenCV failed to load. Check your internet connection.");
-            }
-        }, 5000);
-    </script>
-</body>
-</html>
+// Add this initialization check
+window.addEventListener('load', () => {
+    console.log("OpenCV status:", window.cv ? "Loaded" : "Not loaded");
+});
