@@ -17,7 +17,7 @@
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
-    <!-- Nav and main structure remain the same -->
+    <!-- Previous HTML remains the same until the script tag -->
     <nav class="bg-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
@@ -73,7 +73,7 @@
     </main>
 
     <script>
-        let videoInput, canvasOutput, videoCapture;
+        let videoInput, canvasOutput, src, dst;
         let studyTimer;
         let totalSeconds = 0;
         let sessionSeconds = 0;
@@ -96,7 +96,6 @@
             }
         }
 
-        // Timer and formatting functions remain the same
         function formatTime(totalSecs) {
             const hours = Math.floor(totalSecs / 3600);
             const minutes = Math.floor((totalSecs % 3600) / 60);
@@ -113,12 +112,14 @@
             const startBtn = document.getElementById('startBtn');
             if (cvLoaded && webcamLoaded) {
                 try {
-                    if (!videoCapture && videoInput.videoWidth > 0 && videoInput.videoHeight > 0) {
-                        videoCapture = new cv.VideoCapture(videoInput);
-                        console.log("VideoCapture initialized with dimensions:", videoInput.videoWidth, videoInput.videoHeight);
+                    if (videoInput.videoWidth > 0 && videoInput.videoHeight > 0) {
+                        // Initialize source and destination Mats
+                        src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+                        dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+                        
+                        startBtn.disabled = false;
+                        showStatus("Ready to start studying!", false);
                     }
-                    startBtn.disabled = false;
-                    showStatus("Ready to start studying!", false);
                 } catch (error) {
                     console.error("Initialization error:", error);
                     showStatus("Error initializing camera. Please refresh the page.");
@@ -174,15 +175,9 @@
             if (!isStudying) return;
         
             try {
-                const src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-                const dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-        
-                videoCapture.read(src);
-                if (src.empty()) {
-                    console.error("Empty frame captured. Check video input.");
-                    return;
-                }
-        
+                let cap = new cv.VideoCapture(videoInput);
+                cap.read(src);
+                
                 src.copyTo(dst);
                 const detectedDistraction = detectDistraction(dst);
         
@@ -205,9 +200,6 @@
                 }
         
                 cv.imshow('canvasOutput', dst);
-                src.delete();
-                dst.delete();
-        
                 requestAnimationFrame(processVideo);
             } catch (error) {
                 console.error("Processing error:", error);
@@ -216,8 +208,6 @@
             }
         }
 
-
-
         async function startStudy() {
             const username = document.getElementById('username').value.trim();
             if (!username) {
@@ -225,20 +215,7 @@
                 return;
             }
         
-            if (!videoInput || !videoInput.videoWidth || !videoInput.videoHeight) {
-                showStatus("Camera not ready. Please wait a moment and try again.", true);
-                return;
-            }
-        
             try {
-                const testFrame = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-                videoCapture.read(testFrame);
-        
-                if (testFrame.empty()) {
-                    throw new Error("Unable to capture video frame. Check camera setup.");
-                }
-                testFrame.delete();
-        
                 isStudying = true;
                 document.getElementById('startBtn').disabled = true;
                 document.getElementById('stopBtn').disabled = false;
@@ -252,16 +229,12 @@
             }
         }
 
-
-
-
         function stopStudy() {
             if (!isStudying) return;
             
             isStudying = false;
             const username = document.getElementById('username').value.trim();
             
-            // Save study time
             if (sessionSeconds > 0) {
                 const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
                 const userRankIndex = rankings.findIndex(r => r.name === username);
@@ -281,7 +254,6 @@
             showStatus("Study session ended!", false);
         }
 
-        // Initialize OpenCV
         function initCV() {
             if (window.cv && typeof window.cv.VideoCapture === 'function') {
                 cvLoaded = true;
@@ -292,8 +264,6 @@
             }
         }
 
-
-        // Initialize webcam
         async function initWebcam() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
@@ -305,7 +275,6 @@
                 
                 videoInput.srcObject = stream;
                 
-                // Wait for video to be ready
                 await new Promise((resolve) => {
                     videoInput.onloadedmetadata = () => {
                         videoInput.play().then(resolve);
@@ -320,18 +289,21 @@
             }
         }
 
-        // Start initialization when page loads
         document.addEventListener('DOMContentLoaded', () => {
             showStatus("Loading OpenCV...", null);
             
-            // Add button listeners
             document.getElementById('startBtn').addEventListener('click', startStudy);
             document.getElementById('stopBtn').addEventListener('click', stopStudy);
             
-            // Start initialization
             initCV();
             initWebcam();
         });
+
+        // Cleanup
+        window.onbeforeunload = () => {
+            if (src) src.delete();
+            if (dst) dst.delete();
+        };
     </script>
 </body>
 </html>
