@@ -172,22 +172,23 @@
 
         function processVideo() {
             if (!isStudying) return;
-
+        
             try {
-                let src = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
-                let dst = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
-                
+                // Ensure the video dimensions match
+                let src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+                let dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+        
                 videoCapture.read(src);
                 src.copyTo(dst);
-
+        
                 let detectedDistraction = detectDistraction(dst);
-                
+        
                 if (detectedDistraction) {
                     if (!isDistracted) {
                         isDistracted = true;
                         distractionStartTime = Date.now();
                     }
-                    
+        
                     if (Date.now() - distractionStartTime > 5000) {
                         stopStudy();
                         showStatus("Distraction detected! Session paused.", true);
@@ -199,11 +200,11 @@
                     totalSeconds++;
                     updateTimerDisplay();
                 }
-
+        
                 cv.imshow('canvasOutput', dst);
                 src.delete();
                 dst.delete();
-                
+        
                 requestAnimationFrame(processVideo);
             } catch (error) {
                 console.error("Processing error:", error);
@@ -212,6 +213,7 @@
             }
         }
 
+
         async function startStudy() {
             const username = document.getElementById('username').value.trim();
             if (!username) {
@@ -219,7 +221,7 @@
                 return;
             }
         
-            // Ensure video dimensions are valid
+            // Validate video dimensions
             if (!videoInput || !videoInput.videoWidth || !videoInput.videoHeight) {
                 showStatus("Camera not ready. Please wait a moment and try again.", true);
                 return;
@@ -249,6 +251,7 @@
                 stopStudy();
             }
         }
+
 
 
         function stopStudy() {
