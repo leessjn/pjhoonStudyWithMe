@@ -219,28 +219,28 @@
                 return;
             }
         
-            // Double check that everything is initialized
-            if (!videoCapture || !videoInput || !videoInput.videoWidth) {
+            // Ensure video dimensions are valid
+            if (!videoInput || !videoInput.videoWidth || !videoInput.videoHeight) {
                 showStatus("Camera not ready. Please wait a moment and try again.", true);
                 return;
             }
         
             try {
-                // Test capture to ensure it's working
-                let testFrame = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
+                // Test video capture
+                let testFrame = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
                 videoCapture.read(testFrame);
-                
+        
                 if (testFrame.empty()) {
-                    throw new Error("Unable to capture video frame");
+                    throw new Error("Unable to capture video frame.");
                 }
                 testFrame.delete();
         
-                // If we get here, video capture is working
+                // Start study session
                 isStudying = true;
                 document.getElementById('startBtn').disabled = true;
                 document.getElementById('stopBtn').disabled = false;
                 document.getElementById('timer').parentElement.classList.add('study-active');
-                
+        
                 showStatus("Study session started!", false);
                 processVideo();
             } catch (error) {
@@ -249,6 +249,7 @@
                 stopStudy();
             }
         }
+
 
         function stopStudy() {
             if (!isStudying) return;
