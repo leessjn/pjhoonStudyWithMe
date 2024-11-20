@@ -136,6 +136,7 @@
         
             try {
                 const detections = await faceapi.detectAllFaces(videoInput, new faceapi.TinyFaceDetectorOptions());
+                // Add object detection
                 const objectDetections = await faceapi.detectAllFaces(videoInput)
                     .withFaceLandmarks()
                     .withFaceDescriptors();
@@ -288,66 +289,7 @@
                 ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
             }
         });
-        // // Add at the start of the script with other model loading
-        // await Promise.all([
-        //     faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
-        //     faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
-        //     // Add object detection model
-        //     faceapi.nets.ssdMobilenetv1.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
-        // ]);
-        
-        // Modify the detectFace function
-        async function detectFace() {
-            if (!isStudying) return;
-        
-            try {
-                const detections = await faceapi.detectAllFaces(videoInput, new faceapi.TinyFaceDetectorOptions());
-                // Add object detection
-                const objectDetections = await faceapi.detectAllFaces(videoInput)
-                    .withFaceLandmarks()
-                    .withFaceDescriptors();
-        
-                const ctx = canvasOutput.getContext('2d');
-                ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
-        
-                if (detections.length > 0) {
-                    lastFaceDetectionTime = Date.now();
-                    
-                    // Check for distractions in the frame
-                    const distractions = objectDetections.filter(detection => 
-                        distractionObjects.includes(detection.label?.toLowerCase())
-                    );
-        
-                    if (distractions.length > 0) {
-                        stopStudy();
-                        showStatus("Distraction detected! Session paused.", true);
-                        return;
-                    }
-        
-                    sessionSeconds++;
-                    totalSeconds++;
-                    updateTimerDisplay();
-                    
-                    // Draw face detections only if toggle is on
-                    if (showDetectionBox) {
-                        const displaySize = { width: canvasOutput.width, height: canvasOutput.height };
-                        const normalizedDetections = faceapi.resizeResults(detections, displaySize);
-                        faceapi.draw.drawDetections(canvasOutput, normalizedDetections);
-                    }
-                } else if (Date.now() - lastFaceDetectionTime > MAX_NO_FACE_TIME) {
-                    stopStudy();
-                    showStatus("No face detected! Session paused.", true);
-                    return;
-                }
-        
-                requestAnimationFrame(detectFace);
-            } catch (error) {
-                console.error("Face detection error:", error);
-                showStatus("Face detection error. Please restart.");
-                stopStudy();
-            }
-        }
-        
+            
         // Add this to your DOMContentLoaded event listener
         document.getElementById('toggleDetectionBtn').addEventListener('click', () => {
             showDetectionBox = !showDetectionBox;
@@ -358,6 +300,7 @@
                 ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
             }
         });
+    }
     </script>
 </body>
 </html>
