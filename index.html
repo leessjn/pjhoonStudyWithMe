@@ -80,6 +80,7 @@
         let webcamLoaded = false;
         let studyTimer;
         let lastFaceDetectionTime = 0;
+        let lastActiveTime = Date.now();
         const FACE_CHECK_INTERVAL = 1000; // Check for face every second
         const MAX_NO_FACE_TIME = 5000; // Stop after 5 seconds without face
 
@@ -244,6 +245,21 @@
                 showStatus("Camera access denied. Please allow camera access and refresh.");
             }
         }
+        function handleVisibilityChange() {
+            if (document.visibilityState === "hidden") {
+                // 비활성화 상태일 때 마지막 활성화 시간을 기록
+                lastActiveTime = Date.now();
+            } else if (document.visibilityState === "visible") {
+                // 다시 활성화되었을 때 경과 시간을 보정
+                const now = Date.now();
+                const elapsed = Math.floor((now - lastActiveTime) / 1000);
+                if (isStudying) {
+                    sessionSeconds += elapsed;
+                    totalSeconds += elapsed;
+                    updateTimerDisplay();
+                }
+            }
+        }
 
         document.addEventListener('DOMContentLoaded', () => {
             showStatus("Loading face detection models...", null);
@@ -253,6 +269,7 @@
             
             loadFaceAPI();
             initWebcam();
+            document.addEventListener("visibilitychange", handleVisibilityChange);
         });
     </script>
 </body>
