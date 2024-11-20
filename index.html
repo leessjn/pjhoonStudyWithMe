@@ -90,7 +90,13 @@
         const distractionObjects = ['cell phone', 'laptop', 'tv', 'remote', 'book']; // Objects to detect as distractions
         const FACE_CHECK_INTERVAL = 1000; // Check for face every second
         const MAX_NO_FACE_TIME = 5000; // Stop after 5 seconds without face
-
+        // Add at the start of the script with other model loading
+        await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
+            faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
+            // Add object detection model
+            faceapi.nets.ssdMobilenetv1.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
+        ]);
         function showStatus(message, isError = true) {
             const statusEl = document.getElementById('status');
             statusEl.textContent = message;
@@ -131,13 +137,6 @@
                 }
             }
         }
-        // Add at the start of the script with other model loading
-        await Promise.all([
-            faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
-            faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
-            // Add object detection model
-            faceapi.nets.ssdMobilenetv1.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
-        ]);
         async function detectFace() {
             if (!isStudying) return;
         
