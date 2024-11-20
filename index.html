@@ -163,7 +163,9 @@
                 showStatus("Please enter a username", true);
                 return;
             }
-            
+            if (!sessionStartTime) {
+                sessionStartTime = Date.now();  // 세션 시작 시간 기록
+            }
             canvasOutput.width = videoInput.videoWidth;
             canvasOutput.height = videoInput.videoHeight;
         
@@ -175,6 +177,8 @@
                 showStatus("Study session started!", false);
                 lastFaceDetectionTime = Date.now();
                 detectFace();
+                startTimerInterval();
+                detectFace();  // 얼굴 감지 시작
             } catch (error) {
                 console.error("Error starting study session:", error);
                 showStatus("Error starting camera. Please refresh the page.", true);
@@ -184,7 +188,14 @@
 
         function stopStudy() {
             if (!isStudying) return;
+            const now = Date.now();
+            const elapsed = Math.floor((now - lastUpdateTime) / 1000);  // 마지막 업데이트 후 경과 시간
+            sessionSeconds += elapsed;
+            totalSeconds += elapsed;
             
+            if (sessionStartTime) {
+                sessionStartTime = null;  // 세션 종료
+            }
             isStudying = false;
             const username = document.getElementById('username').value.trim();
             
@@ -206,7 +217,18 @@
             updateTimerDisplay();
             showStatus("Study session ended!", false);
         }
-
+        function startTimerInterval() {
+            clearInterval(studyTimer);  // 기존 타이머 제거
+            studyTimer = setInterval(() => {
+                if (!isStudying) return;
+                const now = Date.now();
+                const elapsed = Math.floor((now - lastUpdateTime) / 1000);  // 경과 시간 계산
+                sessionSeconds += elapsed;
+                totalSeconds += elapsed;
+                lastUpdateTime = now;  // 업데이트 시간 동기화
+                updateTimerDisplay();
+            }, 1000);  // 1초마다 정확히 실행
+        }
         async function loadFaceAPI() {
             try {
                 await Promise.all([
@@ -246,18 +268,17 @@
             }
         }
         function handleVisibilityChange() {
+            const now = Date.now();
             if (document.visibilityState === "hidden") {
-                // 비활성화 상태일 때 마지막 활성화 시간을 기록
-                lastActiveTime = Date.now();
+                lastActiveTime = now;  // 비활성화된 시간 기록
             } else if (document.visibilityState === "visible") {
-                // 다시 활성화되었을 때 경과 시간을 보정
-                const now = Date.now();
-                const elapsed = Math.floor((now - lastActiveTime) / 1000);
                 if (isStudying) {
+                    const elapsed = Math.floor((now - lastActiveTime) / 1000);  // 비활성화 동안 경과 시간
                     sessionSeconds += elapsed;
                     totalSeconds += elapsed;
                     updateTimerDisplay();
                 }
+                lastUpdateTime = now;  // 업데이트 시간 동기화
             }
         }
 
