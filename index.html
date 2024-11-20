@@ -81,6 +81,8 @@
         let studyTimer;
         let lastFaceDetectionTime = 0;
         let lastActiveTime = Date.now();
+        let sessionStartTime = null;  // 세션 시작 시간을 기록
+        let lastUpdateTime = null;    // 마지막 업데이트 시간을 기록
         const FACE_CHECK_INTERVAL = 1000; // Check for face every second
         const MAX_NO_FACE_TIME = 5000; // Stop after 5 seconds without face
 
