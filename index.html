@@ -251,7 +251,7 @@
         async function loadFaceCascade() {
             try {
                 faceCascade = new cv.CascadeClassifier();
-                const response = await fetch('https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml');
+                const response = await fetch('haarcascade_frontalface_default.xml');
                 const buffer = await response.arrayBuffer();
                 faceCascade.load(buffer);
                 checkInitialization();
