@@ -289,17 +289,6 @@
                 ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
             }
         });
-            
-        // Add this to your DOMContentLoaded event listener
-        document.getElementById('toggleDetectionBtn').addEventListener('click', () => {
-            showDetectionBox = !showDetectionBox;
-            const btn = document.getElementById('toggleDetectionBtn');
-            btn.textContent = showDetectionBox ? 'Hide Detection Box' : 'Show Detection Box';
-            if (!showDetectionBox) {
-                const ctx = canvasOutput.getContext('2d');
-                ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
-            }
-        });
     });
     </script>
 </body>
