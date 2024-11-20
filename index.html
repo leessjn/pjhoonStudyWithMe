@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Focus Flow - Study Time Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
+    <script src="https://docs.opencv.org/4.5.2/opencv.js" onload="onOpenCvLoad();" async></script>
     <style>
         @keyframes pulse {
             0%, 100% { transform: scale(1); }
@@ -72,7 +72,6 @@
     </main>
 
     <script>
-        // [Previous JavaScript code remains the same, just remove ranking-related functions]
         let videoInput, canvasOutput, videoCapture;
         let studyTimer;
         let totalSeconds = 0;
@@ -100,10 +99,90 @@
             document.getElementById('total-time').textContent = formatTime(totalSeconds);
         }
 
-        // [Rest of the JavaScript functions remain the same, just remove ranking-related functions]
-        
+        function detectDistraction(src) {
+            try {
+                let gray = new cv.Mat();
+                let binary = new cv.Mat();
+                
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                cv.threshold(gray, binary, 50, 255, cv.THRESH_BINARY_INV);
+                
+                let contours = new cv.MatVector();
+                let hierarchy = new cv.Mat();
+                cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                
+                for (let i = 0; i < contours.size(); i++) {
+                    let contour = contours.get(i);
+                    let rect = cv.boundingRect(contour);
+                    
+                    let aspectRatio = rect.width / rect.height;
+                    let area = cv.contourArea(contour);
+                    
+                    if (aspectRatio >= 0.4 && aspectRatio <= 2.5 && area > 5000 && area < 100000) {
+                        cv.rectangle(src, 
+                            new cv.Point(rect.x, rect.y), 
+                            new cv.Point(rect.x + rect.width, rect.y + rect.height), 
+                            [0, 0, 255, 255], 2
+                        );
+                        
+                        gray.delete(); binary.delete(); 
+                        contours.delete(); hierarchy.delete();
+                        return true;
+                    }
+                }
+                
+                gray.delete(); binary.delete(); 
+                contours.delete(); hierarchy.delete();
+            } catch (error) {
+                console.error("Distraction detection error:", error);
+            }
+            return false;
+        }
+
+        function processVideo() {
+            if (!isStudying || !window.cv) return;
+
+            try {
+                let src = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
+                let dst = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
+                
+                videoCapture.read(src);
+                src.copyTo(dst);
+
+                let detectedDistraction = detectDistraction(dst);
+                
+                if (detectedDistraction) {
+                    if (!isDistracted) {
+                        isDistracted = true;
+                        distractionStartTime = Date.now();
+                    }
+                    
+                    if (Date.now() - distractionStartTime > 5000) {
+                        isStudying = false;
+                        showStatus("Distraction detected. Study session paused.", true);
+                        stopStudy();
+                    }
+                } else {
+                    isDistracted = false;
+                    sessionSeconds++;
+                    totalSeconds++;
+                }
+
+                cv.imshow('canvasOutput', dst);
+                updateTimerDisplay();
+                
+                src.delete(); dst.delete();
+                
+                // Schedule next frame
+                requestAnimationFrame(processVideo);
+            } catch (error) {
+                console.error("Video processing error:", error);
+                showStatus("Error processing video. Please restart.");
+            }
+        }
+
         function startStudy() {
-            const username = document.getElementById('username').value || 'Anonymous';
+            const username = document.getElementById('username').value.trim();
             if (!username) {
                 showStatus("Please enter a username");
                 return;
@@ -114,14 +193,15 @@
             document.getElementById('stopBtn').disabled = false;
             document.getElementById('timer').parentElement.classList.add('study-active');
             
-            studyTimer = setInterval(processVideo, 1000);
+            processVideo();
+            showStatus("Study session started!", false);
         }
 
         function stopStudy() {
-            clearInterval(studyTimer);
+            isStudying = false;
             
-            const username = document.getElementById('username').value || 'Anonymous';
-            const currentTime = totalSeconds;
+            const username = document.getElementById('username').value.trim();
+            const currentTime = sessionSeconds;
             
             // Store in localStorage
             const rankings = JSON.parse(localStorage.getItem('studyRankings') || '[]');
@@ -133,16 +213,71 @@
             }
             localStorage.setItem('studyRankings', JSON.stringify(rankings));
             
-            // Reset
-            isStudying = false;
+            // Reset session
             sessionSeconds = 0;
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
             document.getElementById('timer').parentElement.classList.remove('study-active');
             updateTimerDisplay();
+            showStatus("Study session ended!", false);
         }
 
-        // [Rest of the initialization code remains the same]
+        function initializeOpenCV() {
+            try {
+                videoInput = document.getElementById('videoInput');
+                canvasOutput = document.getElementById('canvasOutput');
+                
+                videoCapture = new cv.VideoCapture(videoInput);
+                
+                document.getElementById('startBtn').disabled = false;
+                showStatus("Ready to start studying!", false);
+            } catch (error) {
+                console.error("OpenCV initialization error:", error);
+                showStatus("Failed to initialize. Please refresh the page.");
+            }
+        }
+
+        function initializeWebcam() {
+            navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    width: { ideal: 640 }, 
+                    height: { ideal: 480 } 
+                } 
+            })
+            .then(stream => {
+                videoInput = document.getElementById('videoInput');
+                videoInput.srcObject = stream;
+                videoInput.onloadedmetadata = () => {
+                    videoInput.play();
+                    if (window.cv) {
+                        initializeOpenCV();
+                    }
+                };
+            })
+            .catch(err => {
+                console.error("Webcam access error", err);
+                showStatus("Webcam access denied. Please allow camera access.");
+            });
+        }
+
+        // Initialize when OpenCV is loaded
+        function onOpenCvLoad() {
+            showStatus("OpenCV loaded, initializing webcam...", false);
+            initializeWebcam();
+        }
+
+        // Fallback check for OpenCV loading
+        setTimeout(() => {
+            if (!window.cv) {
+                showStatus("OpenCV failed to load. Please check your internet connection and refresh.");
+            }
+        }, 5000);
+
+        // Add event listeners for buttons
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('startBtn').addEventListener('click', startStudy);
+            document.getElementById('stopBtn').addEventListener('click', stopStudy);
+        });
     </script>
 </body>
 </html>
