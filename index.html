@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+<!-- Previous head and body content remains the same until the script tag -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,7 +18,7 @@
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
-    <!-- Previous HTML remains the same until the script tag -->
+    <!-- Previous HTML structure remains exactly the same -->
     <nav class="bg-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
@@ -73,8 +74,7 @@
     </main>
 
     <script>
-        let videoInput, canvasOutput, src, dst;
-        let studyTimer;
+        let videoInput, canvasOutput;
         let totalSeconds = 0;
         let sessionSeconds = 0;
         let isStudying = false;
@@ -113,10 +113,6 @@
             if (cvLoaded && webcamLoaded) {
                 try {
                     if (videoInput.videoWidth > 0 && videoInput.videoHeight > 0) {
-                        // Initialize source and destination Mats
-                        src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-                        dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
-                        
                         startBtn.disabled = false;
                         showStatus("Ready to start studying!", false);
                     }
@@ -175,10 +171,24 @@
             if (!isStudying) return;
         
             try {
-                let cap = new cv.VideoCapture(videoInput);
-                cap.read(src);
+                // Create Mats for the current frame
+                let src = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
+                let dst = new cv.Mat(videoInput.videoHeight, videoInput.videoWidth, cv.CV_8UC4);
                 
+                // Get the context from canvas
+                let ctx = canvasOutput.getContext('2d');
+                
+                // Draw the video frame to the canvas
+                ctx.drawImage(videoInput, 0, 0, canvasOutput.width, canvasOutput.height);
+                
+                // Load the image data from canvas to src Mat
+                let imageData = ctx.getImageData(0, 0, canvasOutput.width, canvasOutput.height);
+                src.data.set(imageData.data);
+                
+                // Copy source to destination
                 src.copyTo(dst);
+                
+                // Process the frame
                 const detectedDistraction = detectDistraction(dst);
         
                 if (detectedDistraction) {
@@ -188,6 +198,8 @@
                     }
         
                     if (Date.now() - distractionStartTime > 5000) {
+                        src.delete();
+                        dst.delete();
                         stopStudy();
                         showStatus("Distraction detected! Session paused.", true);
                         return;
@@ -199,7 +211,14 @@
                     updateTimerDisplay();
                 }
         
+                // Show the processed frame
                 cv.imshow('canvasOutput', dst);
+                
+                // Clean up the Mats
+                src.delete();
+                dst.delete();
+                
+                // Schedule next frame
                 requestAnimationFrame(processVideo);
             } catch (error) {
                 console.error("Processing error:", error);
@@ -214,6 +233,10 @@
                 showStatus("Please enter a username", true);
                 return;
             }
+            
+            // Set canvas size to match video
+            canvasOutput.width = videoInput.videoWidth;
+            canvasOutput.height = videoInput.videoHeight;
         
             try {
                 isStudying = true;
@@ -298,12 +321,6 @@
             initCV();
             initWebcam();
         });
-
-        // Cleanup
-        window.onbeforeunload = () => {
-            if (src) src.delete();
-            if (dst) dst.delete();
-        };
     </script>
 </body>
 </html>
