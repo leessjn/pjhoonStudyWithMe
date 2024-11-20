@@ -86,6 +86,8 @@
         let webcamLoaded = false;
         let studyTimer;
         let lastFaceDetectionTime = 0;
+        let showDetectionBox = true;
+        const distractionObjects = ['cell phone', 'laptop', 'tv', 'remote', 'book']; // Objects to detect as distractions
         const FACE_CHECK_INTERVAL = 1000; // Check for face every second
         const MAX_NO_FACE_TIME = 5000; // Stop after 5 seconds without face
 
@@ -132,28 +134,46 @@
 
         async function detectFace() {
             if (!isStudying) return;
-
+        
             try {
                 const detections = await faceapi.detectAllFaces(videoInput, new faceapi.TinyFaceDetectorOptions());
+                const objectDetections = await faceapi.detectAllFaces(videoInput)
+                    .withFaceLandmarks()
+                    .withFaceDescriptors();
+        
                 const ctx = canvasOutput.getContext('2d');
                 ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
-
+        
                 if (detections.length > 0) {
                     lastFaceDetectionTime = Date.now();
+                    
+                    // Check for distractions in the frame
+                    const distractions = objectDetections.filter(detection => 
+                        distractionObjects.includes(detection.label?.toLowerCase())
+                    );
+        
+                    if (distractions.length > 0) {
+                        stopStudy();
+                        showStatus("Distraction detected! Session paused.", true);
+                        return;
+                    }
+        
                     sessionSeconds++;
                     totalSeconds++;
                     updateTimerDisplay();
                     
-                    // Draw face detections
-                    const displaySize = { width: canvasOutput.width, height: canvasOutput.height };
-                    const normalizedDetections = faceapi.resizeResults(detections, displaySize);
-                    faceapi.draw.drawDetections(canvasOutput, normalizedDetections);
+                    // Draw face detections only if toggle is on
+                    if (showDetectionBox) {
+                        const displaySize = { width: canvasOutput.width, height: canvasOutput.height };
+                        const normalizedDetections = faceapi.resizeResults(detections, displaySize);
+                        faceapi.draw.drawDetections(canvasOutput, normalizedDetections);
+                    }
                 } else if (Date.now() - lastFaceDetectionTime > MAX_NO_FACE_TIME) {
                     stopStudy();
                     showStatus("No face detected! Session paused.", true);
                     return;
                 }
-
+        
                 requestAnimationFrame(detectFace);
             } catch (error) {
                 console.error("Face detection error:", error);
@@ -259,10 +279,15 @@
             
             loadFaceAPI();
             initWebcam();
+            document.getElementById('toggleDetectionBtn').addEventListener('click', () => {
+            showDetectionBox = !showDetectionBox;
+            const btn = document.getElementById('toggleDetectionBtn');
+            btn.textContent = showDetectionBox ? 'Hide Detection Box' : 'Show Detection Box';
+            if (!showDetectionBox) {
+                const ctx = canvasOutput.getContext('2d');
+                ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
+            }
         });
-        let showDetectionBox = true;
-        const distractionObjects = ['cell phone', 'laptop', 'tv', 'remote', 'book']; // Objects to detect as distractions
-        
         // Add at the start of the script with other model loading
         await Promise.all([
             faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'),
