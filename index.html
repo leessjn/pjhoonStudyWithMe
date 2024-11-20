@@ -110,14 +110,19 @@
         }
 
         function checkInitialization() {
+            const startBtn = document.getElementById('startBtn');
             if (cvLoaded && webcamLoaded) {
                 try {
-                    videoCapture = new cv.VideoCapture(videoInput);
-                    document.getElementById('startBtn').disabled = false;
+                    // Create video capture only once when everything is ready
+                    if (!videoCapture) {
+                        videoCapture = new cv.VideoCapture(videoInput);
+                    }
+                    startBtn.disabled = false;
                     showStatus("Ready to start studying!", false);
                 } catch (error) {
                     console.error("Initialization error:", error);
                     showStatus("Error initializing camera. Please refresh the page.");
+                    startBtn.disabled = true;
                 }
             }
         }
@@ -207,20 +212,42 @@
             }
         }
 
-        function startStudy() {
+        async function startStudy() {
             const username = document.getElementById('username').value.trim();
             if (!username) {
-                showStatus("Please enter a username");
+                showStatus("Please enter a username", true);
                 return;
             }
-
-            isStudying = true;
-            document.getElementById('startBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            document.getElementById('timer').parentElement.classList.add('study-active');
-            
-            showStatus("Study session started!", false);
-            processVideo();
+        
+            // Double check that everything is initialized
+            if (!videoCapture || !videoInput || !videoInput.videoWidth) {
+                showStatus("Camera not ready. Please wait a moment and try again.", true);
+                return;
+            }
+        
+            try {
+                // Test capture to ensure it's working
+                let testFrame = new cv.Mat(videoInput.height, videoInput.width, cv.CV_8UC4);
+                videoCapture.read(testFrame);
+                
+                if (testFrame.empty()) {
+                    throw new Error("Unable to capture video frame");
+                }
+                testFrame.delete();
+        
+                // If we get here, video capture is working
+                isStudying = true;
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('timer').parentElement.classList.add('study-active');
+                
+                showStatus("Study session started!", false);
+                processVideo();
+            } catch (error) {
+                console.error("Error starting study session:", error);
+                showStatus("Error starting camera. Please refresh the page.", true);
+                stopStudy();
+            }
         }
 
         function stopStudy() {
@@ -251,7 +278,7 @@
 
         // Initialize OpenCV
         function initCV() {
-            if (window.cv) {
+            if (window.cv && typeof window.cv.VideoCapture === 'function') {
                 cvLoaded = true;
                 showStatus("Initializing camera...", null);
                 checkInitialization();
@@ -259,6 +286,7 @@
                 setTimeout(initCV, 100);
             }
         }
+
 
         // Initialize webcam
         async function initWebcam() {
@@ -271,7 +299,13 @@
                 canvasOutput = document.getElementById('canvasOutput');
                 
                 videoInput.srcObject = stream;
-                await videoInput.play();
+                
+                // Wait for video to be ready
+                await new Promise((resolve) => {
+                    videoInput.onloadedmetadata = () => {
+                        videoInput.play().then(resolve);
+                    };
+                });
                 
                 webcamLoaded = true;
                 checkInitialization();
